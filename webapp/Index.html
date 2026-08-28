@@ -1,215 +1,255 @@
 <!--
   FOLLOW UP MACHINE - single page front end
 
-  Add this as an HTML file in the same Apps Script project:
-    Files +  ->  HTML  ->  name it exactly "Index"  (no .html)
+  TWO MODES, picked automatically:
 
-  It runs in two modes and picks automatically:
+  A) SERVED BY APPS SCRIPT - leave API_URL and API_TOKEN empty below.
+     Calls server functions directly. Google's login is the lock.
 
-  1. SERVED BY APPS SCRIPT  (recommended - leave the config below empty)
-     Calls server functions directly. No token, no CORS, and Google's own
-     login protects it. Deploy with "Who has access: Only myself".
+  B) HOSTED ON CLOUDFLARE (or anywhere else) - fill in API_URL + API_TOKEN,
+     add a matching webAppToken row to Settings, and redeploy the Apps Script
+     web app with "Who has access: Anyone".
 
-  2. HOSTED ELSEWHERE, e.g. Cloudflare Pages
-     Fill in API_URL and API_TOKEN below, add a matching webAppToken row to
-     the Settings sheet, and redeploy the web app with access "Anyone".
-
-     READ THIS FIRST: mode 2 makes your /exec URL reachable by anyone on the
-     internet, with the token as the only lock, and Apps Script does not rate
-     limit it. If you use it, make the token long and random (30+ characters,
-     not a word), and never commit this file anywhere public with the token in
-     it. Mode 1 has none of these problems.
+     In mode B your /exec URL is reachable by anyone on the internet and the
+     token is the only lock. Apps Script does not rate limit it. Use a long
+     random token and never put this file in a public repo with the token in it.
 -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#08080a">
 <title>Follow Up Machine</title>
 <link rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
-  :root{
-    --bg:#0a0a0a; --card:#141414; --card2:#1b1b1b; --line:#282828;
-    --txt:#f2f2f2; --dim:#8b8b8b; --faint:#5c5c5c;
-    --accent:#e8e8e8;
-    --blue:#4a9eff; --green:#3ecf8e; --amber:#f0b429; --red:#f0564a;
-    --purple:#a78bfa; --gray:#6b7280;
-    --tabh:62px;
-  }
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;padding:0}
-  body{
-    background:var(--bg); color:var(--txt); min-height:100vh;
-    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    padding-bottom:calc(var(--tabh) + env(safe-area-inset-bottom,0px));
-    -webkit-font-smoothing:antialiased;
-  }
+:root{
+  --bg:#08080a; --surf:#111114; --surf2:#17171b; --surf3:#1e1e23;
+  --line:#232329; --line2:#2e2e36;
+  --txt:#fafafa; --dim:#9a9aa4; --faint:#5f5f6b;
+  --blue:#5b9dff; --green:#3ddc97; --amber:#ffc043; --red:#ff5d52;
+  --purple:#b18cff; --gray:#71717f;
+  --tabh:60px;
+  --r:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--txt);min-height:100vh;
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding-bottom:calc(var(--tabh) + env(safe-area-inset-bottom,0px));
+  -webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:0;height:0}
 
-  /* ---------- header ---------- */
-  header{
-    position:sticky; top:0; z-index:20; background:rgba(10,10,10,.94);
-    backdrop-filter:blur(12px); border-bottom:1px solid var(--line);
-    padding:14px 16px 12px;
-  }
-  .brand{display:flex;align-items:center;gap:9px;margin-bottom:11px}
-  .brand i{font-size:15px;color:var(--dim)}
-  .brand h1{
-    margin:0;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
-  }
-  .pill{
-    margin-left:auto;font-size:10px;font-weight:700;letter-spacing:.08em;
-    text-transform:uppercase;padding:4px 9px;border-radius:999px;
-    border:1px solid var(--line); color:var(--dim); white-space:nowrap;
-  }
-  .pill.on   {color:var(--green); border-color:rgba(62,207,142,.4); background:rgba(62,207,142,.09)}
-  .pill.pause{color:var(--amber); border-color:rgba(240,180,41,.4); background:rgba(240,180,41,.09)}
-  .pill.run  {color:var(--blue);  border-color:rgba(74,158,255,.4); background:rgba(74,158,255,.09)}
+/* ── header ───────────────────────────────────── */
+header{
+  position:sticky;top:0;z-index:20;
+  background:linear-gradient(180deg,rgba(8,8,10,.98),rgba(8,8,10,.92));
+  backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid var(--line);padding:14px 18px 13px;
+}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:13px}
+.mark{
+  width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex-shrink:0;
+  background:linear-gradient(145deg,#2a2a32,#141418);
+  border:1px solid var(--line2);font-size:12px;color:var(--amber);
+}
+.brand h1{margin:0;font-size:12.5px;font-weight:700;letter-spacing:.15em;text-transform:uppercase}
+.pill{
+  margin-left:auto;display:inline-flex;align-items:center;gap:6px;
+  font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  padding:5px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--dim);
+}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.on{color:var(--green);border-color:rgba(61,220,151,.32);background:rgba(61,220,151,.08)}
+.pill.run{color:var(--blue);border-color:rgba(91,157,255,.32);background:rgba(91,157,255,.08)}
+.pill.run .dot{animation:pulse 1.6s ease-in-out infinite}
+.pill.pause{color:var(--amber);border-color:rgba(255,192,67,.32);background:rgba(255,192,67,.08)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 
-  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-  .stat{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 10px}
-  .stat b{display:block;font-size:19px;font-weight:700;line-height:1.15;letter-spacing:-.02em}
-  .stat span{display:block;font-size:9.5px;color:var(--faint);text-transform:uppercase;
-             letter-spacing:.07em;margin-top:2px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.stat{
+  background:linear-gradient(160deg,var(--surf2),var(--surf));
+  border:1px solid var(--line);border-radius:11px;padding:10px 11px;
+}
+.stat b{display:block;font-size:20px;font-weight:700;line-height:1.1;letter-spacing:-.03em;
+        font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:9px;color:var(--faint);text-transform:uppercase;
+           letter-spacing:.09em;margin-top:3px;font-weight:600}
 
-  /* ---------- layout ---------- */
-  main{padding:14px 16px 22px;max-width:760px;margin:0 auto}
-  .muted{color:var(--dim);font-size:13px}
-  .empty{text-align:center;color:var(--faint);padding:44px 20px;font-size:14px}
-  .empty i{display:block;font-size:26px;margin-bottom:10px;opacity:.4}
-  h2.sec{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
-         margin:20px 0 9px;font-weight:700}
-  h2.sec:first-child{margin-top:2px}
+/* ── layout ───────────────────────────────────── */
+main{padding:16px 18px 26px;max-width:800px;margin:0 auto}
+.muted{color:var(--dim);font-size:13px}
+.tiny{font-size:11.5px;color:var(--faint);line-height:1.5}
+.empty{text-align:center;color:var(--faint);padding:52px 24px}
+.empty i{display:block;font-size:30px;margin-bottom:13px;opacity:.3}
+.empty b{display:block;color:var(--dim);font-size:14.5px;margin-bottom:5px;font-weight:600}
+h2.sec{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);
+       margin:22px 0 10px;font-weight:700}
+h2.sec:first-child{margin-top:0}
 
-  /* ---------- cards ---------- */
-  .card{
-    background:var(--card);border:1px solid var(--line);border-radius:11px;
-    padding:13px 14px;margin-bottom:9px;
-  }
-  .card.tap{cursor:pointer;transition:border-color .12s,background .12s}
-  .card.tap:active{background:var(--card2);border-color:#333}
-  .row{display:flex;align-items:center;gap:10px}
-  .grow{flex:1;min-width:0}
-  .ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .nm{font-weight:600;font-size:14.5px;letter-spacing:-.01em}
-  .sub{color:var(--dim);font-size:12.5px;margin-top:2px}
-  .meta{color:var(--faint);font-size:11.5px;margin-top:6px;display:flex;gap:12px;flex-wrap:wrap}
-  .meta i{width:11px;text-align:center;margin-right:3px;opacity:.75}
+/* ── cards ────────────────────────────────────── */
+.card{
+  background:var(--surf);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px 15px;margin-bottom:10px;transition:border-color .13s,transform .09s;
+}
+.card.tap{cursor:pointer}
+.card.tap:active{transform:scale(.988);border-color:var(--line2);background:var(--surf2)}
+.row{display:flex;align-items:center;gap:11px}
+.grow{flex:1;min-width:0}
+.ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nm{font-weight:600;font-size:15px;letter-spacing:-.015em}
+.sub{color:var(--dim);font-size:13px;margin-top:3px}
+.meta{color:var(--faint);font-size:11.5px;margin-top:9px;display:flex;gap:14px;flex-wrap:wrap;
+      font-variant-numeric:tabular-nums}
+.meta i{margin-right:5px;opacity:.6}
 
-  /* ---------- status ---------- */
-  .st{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
-      padding:3px 8px;border-radius:5px;white-space:nowrap;flex-shrink:0}
-  .st-Active {color:var(--blue);  background:rgba(74,158,255,.13)}
-  .st-Replied{color:var(--green); background:rgba(62,207,142,.13)}
-  .st-OOO    {color:var(--amber); background:rgba(240,180,41,.13)}
-  .st-Bounced{color:var(--red);   background:rgba(240,86,74,.13)}
-  .st-Error  {color:var(--red);   background:rgba(240,86,74,.13)}
-  .st-Done   {color:var(--gray);  background:rgba(107,114,128,.16)}
-  .st-Paused {color:var(--purple);background:rgba(167,139,250,.13)}
+/* ── status ───────────────────────────────────── */
+.st{
+  display:inline-flex;align-items:center;gap:6px;flex-shrink:0;
+  font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  padding:4px 9px;border-radius:6px;
+}
+.st .dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.st-Active {color:var(--blue);  background:rgba(91,157,255,.12)}
+.st-Replied{color:var(--green); background:rgba(61,220,151,.12)}
+.st-OOO    {color:var(--amber); background:rgba(255,192,67,.12)}
+.st-Bounced{color:var(--red);   background:rgba(255,93,82,.12)}
+.st-Error  {color:var(--red);   background:rgba(255,93,82,.12)}
+.st-Done   {color:var(--gray);  background:rgba(113,113,127,.14)}
+.st-Paused {color:var(--purple);background:rgba(177,140,255,.12)}
 
-  /* ---------- controls ---------- */
-  input,select,textarea,button{font-family:inherit;font-size:15px}
-  input,select,textarea{
-    width:100%;background:var(--card2);border:1px solid var(--line);color:var(--txt);
-    border-radius:8px;padding:11px 12px;outline:none;
-  }
-  input:focus,select:focus,textarea:focus{border-color:#3d3d3d}
-  input::placeholder{color:var(--faint)}
-  label{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
-        color:var(--faint);margin:0 0 6px;font-weight:600}
-  .field{margin-bottom:13px}
+/* ── chips (sequence switcher) ────────────────── */
+.chips{
+  display:flex;gap:8px;overflow-x:auto;padding:2px 18px 14px;margin:0 -18px;
+  scrollbar-width:none;
+}
+.chip{
+  flex-shrink:0;background:var(--surf);border:1px solid var(--line);color:var(--dim);
+  border-radius:999px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer;
+  white-space:nowrap;transition:all .13s;font-family:inherit;
+}
+.chip:active{transform:scale(.96)}
+.chip.on{background:var(--txt);border-color:var(--txt);color:#08080a}
+.chip.new{border-style:dashed;color:var(--faint)}
+.chip .n{opacity:.55;margin-left:5px;font-weight:500}
 
-  .btn{
-    display:inline-flex;align-items:center;justify-content:center;gap:8px;
-    background:var(--accent);color:#0a0a0a;border:none;border-radius:8px;
-    padding:12px 16px;font-weight:650;cursor:pointer;width:100%;
-  }
-  .btn:active{opacity:.82}
-  .btn[disabled]{opacity:.4;cursor:default}
-  .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
-  .btn.danger{background:var(--red);color:#fff}
-  .btn.sm{padding:9px 12px;font-size:13.5px;width:auto}
-  .btnrow{display:flex;gap:8px;flex-wrap:wrap}
-  .btnrow .btn{flex:1;min-width:118px}
+/* ── controls ─────────────────────────────────── */
+input,select,textarea,button{font-family:inherit;font-size:15px}
+input,select,textarea{
+  width:100%;background:var(--surf2);border:1px solid var(--line);color:var(--txt);
+  border-radius:10px;padding:12px 13px;outline:none;transition:border-color .13s;
+}
+input:focus,select:focus,textarea:focus{border-color:#3b3b45;background:var(--surf3)}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+textarea{resize:vertical;min-height:130px;line-height:1.55;
+         font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+label{display:block;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+      color:var(--faint);margin:0 0 7px;font-weight:700}
+.field{margin-bottom:15px}
+.pair{display:flex;gap:10px}
+.pair .field:first-child{width:112px;flex-shrink:0}
+.pair .field:last-child{flex:1}
 
-  .switch{
-    display:flex;align-items:center;gap:12px;background:var(--card);
-    border:1px solid var(--line);border-radius:11px;padding:14px;margin-bottom:14px;
-  }
-  .switch.armed{border-color:rgba(240,180,41,.45);background:rgba(240,180,41,.07)}
-  .switch .grow b{display:block;font-size:14.5px}
-  .knob{
-    width:50px;height:29px;border-radius:999px;background:#2c2c2c;position:relative;
-    flex-shrink:0;cursor:pointer;transition:background .16s;border:none;padding:0
-  }
-  .knob::after{
-    content:'';position:absolute;top:3px;left:3px;width:23px;height:23px;border-radius:50%;
-    background:#f2f2f2;transition:transform .16s;
-  }
-  .knob.on{background:var(--amber)}
-  .knob.on::after{transform:translateX(21px)}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  background:var(--txt);color:#08080a;border:none;border-radius:10px;
+  padding:13px 17px;font-weight:650;font-size:14.5px;cursor:pointer;width:100%;
+  transition:transform .09s,opacity .13s;
+}
+.btn:active{transform:scale(.985);opacity:.88}
+.btn[disabled]{opacity:.35;cursor:default;transform:none}
+.btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line2)}
+.btn.danger{background:transparent;color:var(--red);border:1px solid rgba(255,93,82,.35)}
+.btn.sm{padding:10px 13px;font-size:13px;width:auto}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.btnrow .btn{flex:1;min-width:104px}
 
-  /* ---------- tab bar ---------- */
-  nav{
-    position:fixed;left:0;right:0;bottom:0;z-index:30;height:var(--tabh);
-    background:rgba(10,10,10,.97);backdrop-filter:blur(12px);
-    border-top:1px solid var(--line);display:flex;
-    padding-bottom:env(safe-area-inset-bottom,0px);
-  }
-  nav button{
-    flex:1;background:none;border:none;color:var(--faint);cursor:pointer;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-    font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:600;
-    padding:0;transition:color .12s;
-  }
-  nav button i{font-size:16.5px}
-  nav button.on{color:var(--txt)}
+.switch{
+  display:flex;align-items:center;gap:13px;border-radius:var(--r);padding:15px;
+  margin-bottom:11px;background:var(--surf);border:1px solid var(--line);
+}
+.switch.armed{border-color:rgba(255,192,67,.4);
+              background:linear-gradient(160deg,rgba(255,192,67,.09),rgba(255,192,67,.03))}
+.switch b{display:block;font-size:15px;margin-bottom:2px}
+.knob{
+  width:50px;height:30px;border-radius:999px;background:#2e2e36;position:relative;
+  flex-shrink:0;cursor:pointer;transition:background .18s;border:none;padding:0
+}
+.knob::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;
+             border-radius:50%;background:#fafafa;transition:transform .18s}
+.knob.on{background:var(--amber)}
+.knob.on::after{transform:translateX(20px)}
 
-  /* ---------- overlay ---------- */
-  .sheet{
-    position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.72);
-    display:flex;align-items:flex-end;justify-content:center;
-  }
-  .sheet-in{
-    background:var(--bg);border-top:1px solid var(--line);border-radius:16px 16px 0 0;
-    width:100%;max-width:760px;max-height:88vh;overflow-y:auto;
-    padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));
-  }
-  .sheet-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px}
-  .sheet-hd h3{margin:0;font-size:16px;flex:1;letter-spacing:-.01em}
-  .x{background:none;border:none;color:var(--dim);font-size:19px;cursor:pointer;padding:4px 6px}
-  .kv{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}
-  .kv span{color:var(--faint);width:104px;flex-shrink:0}
-  .kv div{flex:1;word-break:break-word}
+/* ── tab bar ──────────────────────────────────── */
+nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;height:var(--tabh);
+  background:rgba(8,8,10,.97);backdrop-filter:saturate(180%) blur(14px);
+  border-top:1px solid var(--line);display:flex;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+nav button{
+  flex:1;background:none;border:none;color:var(--faint);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  font-size:9px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  padding:0;transition:color .13s;
+}
+nav button i{font-size:17px;transition:transform .13s}
+nav button.on{color:var(--txt)}
+nav button.on i{transform:translateY(-1px)}
 
-  pre.msg{
-    background:var(--card2);border:1px solid var(--line);border-radius:8px;
-    padding:11px 12px;white-space:pre-wrap;word-break:break-word;
-    font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;color:#dcdcdc;margin:0;
-  }
+/* ── sheet ────────────────────────────────────── */
+.sheet{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.7);
+       display:flex;align-items:flex-end;justify-content:center;
+       animation:fade .16s ease}
+@keyframes fade{from{opacity:0}}
+.sheet-in{
+  background:var(--bg);border-top:1px solid var(--line2);border-radius:20px 20px 0 0;
+  width:100%;max-width:800px;max-height:90vh;overflow-y:auto;
+  padding:8px 18px calc(26px + env(safe-area-inset-bottom,0px));
+  animation:up .22s cubic-bezier(.32,.72,0,1);
+}
+@keyframes up{from{transform:translateY(18px)}}
+.grab{width:34px;height:4px;border-radius:2px;background:var(--line2);margin:0 auto 14px}
+.sheet-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.sheet-hd h3{margin:0;font-size:17px;flex:1;letter-spacing:-.02em}
+.x{background:var(--surf2);border:1px solid var(--line);color:var(--dim);width:30px;height:30px;
+   border-radius:50%;font-size:13px;cursor:pointer;display:grid;place-items:center;flex-shrink:0}
+.kv{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.kv span{color:var(--faint);width:100px;flex-shrink:0;font-size:12.5px}
+.kv div{flex:1;word-break:break-word}
 
-  /* ---------- toast ---------- */
-  #toast{
-    position:fixed;left:50%;transform:translateX(-50%);
-    bottom:calc(var(--tabh) + 16px + env(safe-area-inset-bottom,0px));
-    background:#f2f2f2;color:#0a0a0a;padding:11px 17px;border-radius:9px;
-    font-size:13.5px;font-weight:600;z-index:60;max-width:88%;text-align:center;
-    box-shadow:0 8px 28px rgba(0,0,0,.5);
-  }
-  #toast.bad{background:var(--red);color:#fff}
+pre.msg{
+  background:var(--surf2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 13px;white-space:pre-wrap;word-break:break-word;
+  font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d8d8de;margin:0;
+  max-height:190px;overflow:hidden;
+}
 
-  .spin{display:inline-block;animation:sp .8s linear infinite}
-  @keyframes sp{to{transform:rotate(360deg)}}
-  .loading{text-align:center;padding:38px;color:var(--faint)}
+/* ── toast ────────────────────────────────────── */
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(var(--tabh) + 18px + env(safe-area-inset-bottom,0px));
+  background:#fafafa;color:#08080a;padding:12px 18px;border-radius:11px;
+  font-size:13.5px;font-weight:650;z-index:60;max-width:88%;text-align:center;
+  box-shadow:0 10px 34px rgba(0,0,0,.6);animation:up .2s ease;
+}
+#toast.bad{background:var(--red);color:#fff}
+
+.spin{display:inline-block;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.loading{text-align:center;padding:46px;color:var(--faint);font-size:20px}
 </style>
 </head>
 <body>
 
 <header>
   <div class="brand">
-    <i class="fa-solid fa-bolt"></i>
+    <div class="mark"><i class="fa-solid fa-bolt"></i></div>
     <h1>Follow Up Machine</h1>
-    <span class="pill" id="pill">···</span>
+    <span class="pill" id="pill"><span class="dot"></span><span id="pilltxt">···</span></span>
   </div>
   <div class="stats">
     <div class="stat"><b id="s1">–</b><span>Sent today</span></div>
@@ -221,23 +261,24 @@
 <main id="view"><div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div></main>
 
 <nav>
-  <button data-tab="leads"   class="on"><i class="fa-solid fa-users"></i>Leads</button>
+  <button data-tab="leads" class="on"><i class="fa-solid fa-users"></i>Leads</button>
   <button data-tab="add"><i class="fa-solid fa-plus"></i>Add</button>
-  <button data-tab="settings"><i class="fa-solid fa-sliders"></i>Settings</button>
-  <button data-tab="log"><i class="fa-solid fa-receipt"></i>Log</button>
   <button data-tab="seq"><i class="fa-solid fa-layer-group"></i>Steps</button>
+  <button data-tab="log"><i class="fa-solid fa-receipt"></i>Log</button>
+  <button data-tab="settings"><i class="fa-solid fa-sliders"></i>Settings</button>
 </nav>
 
 <script>
 // ============================================================
-// CONFIG - leave BOTH blank when Apps Script serves this page
+// CONFIG
+//   Apps Script hosting -> leave both empty
+//   Cloudflare hosting  -> fill both in
 // ============================================================
-var API_URL   = '';   // e.g. 'https://script.google.com/macros/s/AKfy.../exec'
-var API_TOKEN = '';   // must match the webAppToken row in Settings
+var API_URL   = '';
+var API_TOKEN = '';
 
 // ============================================================
-// API adapter - direct call when Apps Script serves us,
-// fetch + token when we are hosted somewhere else.
+// API adapter
 // ============================================================
 var NATIVE = (typeof google !== 'undefined' && google.script && google.script.run);
 
@@ -252,26 +293,39 @@ function api(fn, args){
       return;
     }
     if (!API_URL){
-      reject(new Error('API_URL is empty. Either open this page from the Apps Script /exec URL, or fill in API_URL and API_TOKEN at the top of this file.'));
+      reject(new Error('API_URL is empty. Open this from the Apps Script /exec URL, or fill in API_URL and API_TOKEN at the top of this file.'));
       return;
     }
     fetch(API_URL, {
-      method: 'POST',
-      // text/plain keeps the browser from sending a CORS preflight, which
-      // Apps Script cannot answer.
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ token: API_TOKEN, fn: fn, args: args })
+      method:'POST',
+      // text/plain avoids a CORS preflight, which Apps Script cannot answer
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token:API_TOKEN, fn:fn, args:args })
     })
-    .then(function(r){ return r.json(); })
-    .then(function(j){ j.ok ? resolve(j.data) : reject(new Error(j.error || 'Server error')); })
-    .catch(function(e){ reject(new Error('Network: ' + e.message)); });
+    .then(function(r){ return r.text(); })
+    .then(function(txt){
+      var j;
+      try { j = JSON.parse(txt); }
+      catch(e){
+        // The usual cause: the deployment is still "Only myself", so Google
+        // served a login page instead of our JSON.
+        if (txt.indexOf('<!DOCTYPE') !== -1 || txt.indexOf('accounts.google') !== -1){
+          throw new Error('Got a Google login page, not data. Redeploy the web app with "Who has access: Anyone".');
+        }
+        throw new Error('Unreadable response from the server.');
+      }
+      if (!j.ok) throw new Error(j.error || 'Server error');
+      return j.data;
+    })
+    .then(resolve)
+    .catch(function(e){ reject(e instanceof Error ? e : new Error(String(e))); });
   });
 }
 
 // ============================================================
 // helpers
 // ============================================================
-var $    = function(s){ return document.querySelector(s); };
+var $ = function(s){ return document.querySelector(s); };
 var view = function(){ return $('#view'); };
 
 function esc(s){
@@ -280,126 +334,109 @@ function esc(s){
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function toast(msg, bad){
-  var t = document.createElement('div');
-  t.id = 'toast'; t.textContent = msg;
-  if (bad) t.className = 'bad';
   var old = $('#toast'); if (old) old.remove();
+  var t = document.createElement('div');
+  t.id='toast'; t.textContent=msg; if(bad) t.className='bad';
   document.body.appendChild(t);
-  setTimeout(function(){ if (t.parentNode) t.remove(); }, bad ? 4200 : 2300);
+  setTimeout(function(){ if(t.parentNode) t.remove(); }, bad ? 4600 : 2400);
 }
-function busy(){ view().innerHTML = '<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>'; }
-function fail(e){
-  view().innerHTML = '<div class="empty"><i class="fa-solid fa-triangle-exclamation"></i>' +
-                     esc(e.message) + '</div>';
+function busy(){ view().innerHTML='<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>'; }
+function fail(e){ view().innerHTML = nothing('triangle-exclamation','Something went wrong', e.message); }
+function nothing(icon, title, sub){
+  return '<div class="empty"><i class="fa-solid fa-'+icon+'"></i><b>'+esc(title)+'</b>'+
+         (sub ? '<div class="tiny" style="max-width:300px;margin:0 auto">'+esc(sub)+'</div>' : '')+'</div>';
 }
-function nothing(icon, txt){
-  return '<div class="empty"><i class="fa-solid fa-' + icon + '"></i>' + esc(txt) + '</div>';
+function chip(status){
+  return '<span class="st st-'+esc(status||'Done')+'"><span class="dot"></span>'+esc(status)+'</span>';
+}
+function closeSheet(){ var o=$('#ov'); if(o) o.remove(); }
+function openSheet(title, inner){
+  closeSheet();
+  var d = document.createElement('div');
+  d.className='sheet'; d.id='ov';
+  d.innerHTML = '<div class="sheet-in"><div class="grab"></div>'+
+    '<div class="sheet-hd"><h3>'+esc(title)+'</h3>'+
+    '<button class="x" id="ovx"><i class="fa-solid fa-xmark"></i></button></div>'+inner+'</div>';
+  document.body.appendChild(d);
+  $('#ovx').onclick = closeSheet;
+  d.onclick = function(e){ if(e.target === d) closeSheet(); };
+  return d;
 }
 
 // ============================================================
 // state
 // ============================================================
-var TAB    = 'leads';
-var LEADS  = null;
-var SEQS   = null;
-var FOUND  = null;   // Add-tab search results
-var LOOKUP = '';     // Add-tab email searched
+var LEADS=null, SEQS=null, FOUND=null, LOOKUP='', CURSEQ=null;
 
 // ============================================================
 // header
 // ============================================================
 function refreshHeader(){
   api('uiGetStats').then(function(s){
-    $('#s1').textContent = s.sendsToday + '/' + s.maxSends;
+    $('#s1').textContent = s.sendsToday+'/'+s.maxSends;
     $('#s2').textContent = s.counts.Active;
     $('#s3').textContent = s.counts.Replied;
-    var p = $('#pill');
-    if (s.paused)            { p.textContent = 'Paused';  p.className = 'pill pause'; }
-    else if (s.chainRunning) { p.textContent = 'Running'; p.className = 'pill run';   }
-    else                     { p.textContent = 'Idle';    p.className = 'pill on';    }
-  }).catch(function(e){ $('#pill').textContent = 'Error'; console.error(e); });
+    var p=$('#pill'), t=$('#pilltxt');
+    if (s.paused)            { t.textContent='Paused';  p.className='pill pause'; }
+    else if (s.chainRunning) { t.textContent='Running'; p.className='pill run';   }
+    else                     { t.textContent='Idle';    p.className='pill on';    }
+  }).catch(function(e){ $('#pilltxt').textContent='Offline'; console.error(e); });
 }
 
 // ============================================================
 // TAB: leads
 // ============================================================
 function renderLeads(){
-  if (!LEADS) { busy(); api('uiGetLeads').then(function(d){ LEADS = d; renderLeads(); }).catch(fail); return; }
-  if (!LEADS.length) { view().innerHTML = nothing('users', 'No leads yet. Use the Add tab.'); return; }
+  if (!LEADS){ busy(); api('uiGetLeads').then(function(d){ LEADS=d; renderLeads(); }).catch(fail); return; }
+  if (!LEADS.length){ view().innerHTML = nothing('users','No leads yet','Use the Add tab to enroll your first one.'); return; }
 
-  var order = { Active:0, Error:1, OOO:2, Bounced:3, Replied:4, Paused:5, Done:6 };
-  var sorted = LEADS.slice().sort(function(a,b){
-    var d = (order[a.status] === undefined ? 9 : order[a.status]) -
-            (order[b.status] === undefined ? 9 : order[b.status]);
-    return d !== 0 ? d : String(a.nextSendDate).localeCompare(String(b.nextSendDate));
+  var order={Active:0,Error:1,OOO:2,Bounced:3,Replied:4,Paused:5,Done:6};
+  var sorted=LEADS.slice().sort(function(a,b){
+    var d=(order[a.status]===undefined?9:order[a.status])-(order[b.status]===undefined?9:order[b.status]);
+    return d!==0?d:String(a.nextSendDate).localeCompare(String(b.nextSendDate));
   });
 
-  view().innerHTML = sorted.map(function(l, i){
-    return '<div class="card tap" data-lead="' + i + '">' +
-      '<div class="row">' +
-        '<div class="grow">' +
-          '<div class="nm ell">' + esc(l.leadName || l.leadEmail) + '</div>' +
-          '<div class="sub ell">' + esc(l.leadName ? l.leadEmail : (l.sequenceName || 'no sequence')) + '</div>' +
-        '</div>' +
-        '<span class="st st-' + esc(l.status || 'Done') + '">' + esc(l.status) + '</span>' +
-      '</div>' +
-      '<div class="meta">' +
-        '<span><i class="fa-solid fa-list-ol"></i>Step ' + l.step +
-              (l.totalSteps ? '/' + l.totalSteps : '') + '</span>' +
-        (l.nextSendDate ? '<span><i class="fa-regular fa-calendar"></i>' + esc(l.nextSendDate) + '</span>' : '') +
-        (l.sequenceName && l.leadName ? '<span><i class="fa-solid fa-layer-group"></i>' + esc(l.sequenceName) + '</span>' : '') +
-      '</div>' +
-    '</div>';
+  view().innerHTML = sorted.map(function(l,i){
+    return '<div class="card tap" data-lead="'+i+'">'+
+      '<div class="row"><div class="grow">'+
+        '<div class="nm ell">'+esc(l.leadName||l.leadEmail)+'</div>'+
+        '<div class="sub ell">'+esc(l.leadName?l.leadEmail:(l.sequenceName||'no sequence set'))+'</div>'+
+      '</div>'+chip(l.status)+'</div>'+
+      '<div class="meta">'+
+        '<span><i class="fa-solid fa-list-ol"></i>Step '+l.step+(l.totalSteps?' / '+l.totalSteps:'')+'</span>'+
+        (l.nextSendDate?'<span><i class="fa-regular fa-calendar"></i>'+esc(l.nextSendDate)+'</span>':'')+
+        (l.sequenceName&&l.leadName?'<span><i class="fa-solid fa-layer-group"></i>'+esc(l.sequenceName)+'</span>':'')+
+      '</div></div>';
   }).join('');
 
   view().querySelectorAll('[data-lead]').forEach(function(el){
-    el.onclick = function(){ openLead(sorted[+el.dataset.lead]); };
+    el.onclick=function(){ openLead(sorted[+el.dataset.lead]); };
   });
 }
 
 function openLead(l){
-  var STATUSES = ['Active','Paused','Replied','OOO','Bounced','Done','Error'];
-  var html =
-    '<div class="sheet" id="ov"><div class="sheet-in">' +
-      '<div class="sheet-hd">' +
-        '<h3>' + esc(l.leadName || l.leadEmail) + '</h3>' +
-        '<button class="x" id="ovx"><i class="fa-solid fa-xmark"></i></button>' +
-      '</div>' +
-      '<div class="kv"><span>Email</span><div>' + esc(l.leadEmail) + '</div></div>' +
-      '<div class="kv"><span>Sequence</span><div>' + esc(l.sequenceName || '—') + '</div></div>' +
-      '<div class="kv"><span>Step</span><div>' + l.step + (l.totalSteps ? ' of ' + l.totalSteps : '') + '</div></div>' +
-      '<div class="kv"><span>Next send</span><div>' + esc(l.nextSendDate || '—') + '</div></div>' +
-      '<div class="kv"><span>Last sent</span><div>' + esc(l.lastSentDate || 'never') + '</div></div>' +
-      (l.snippet ? '<div class="kv"><span>Their reply</span><div>' + esc(l.snippet) + '</div></div>' : '') +
-      (l.notes   ? '<div class="kv"><span>Notes</span><div>' + esc(l.notes) + '</div></div>' : '') +
-      '<h2 class="sec">Change status</h2>' +
-      '<div class="btnrow">' +
-        STATUSES.map(function(s){
-          return '<button class="btn ghost sm" data-st="' + s + '"' +
-                 (s === l.status ? ' disabled' : '') + '>' + s + '</button>';
-        }).join('') +
-      '</div>' +
-      '<p class="muted" style="margin:13px 0 0;font-size:12px">' +
-        'Setting a lead back to Active also makes it due today.</p>' +
-    '</div></div>';
-
-  var wrap = document.createElement('div');
-  wrap.innerHTML = html;
-  document.body.appendChild(wrap.firstChild);
-
-  var close = function(){ var o = $('#ov'); if (o) o.remove(); };
-  $('#ovx').onclick = close;
-  $('#ov').onclick  = function(e){ if (e.target.id === 'ov') close(); };
+  var S=['Active','Paused','Replied','OOO','Bounced','Done','Error'];
+  openSheet(l.leadName||l.leadEmail,
+    '<div class="kv"><span>Email</span><div>'+esc(l.leadEmail)+'</div></div>'+
+    '<div class="kv"><span>Sequence</span><div>'+esc(l.sequenceName||'—')+'</div></div>'+
+    '<div class="kv"><span>Step</span><div>'+l.step+(l.totalSteps?' of '+l.totalSteps:'')+'</div></div>'+
+    '<div class="kv"><span>Next send</span><div>'+esc(l.nextSendDate||'—')+'</div></div>'+
+    '<div class="kv"><span>Last sent</span><div>'+esc(l.lastSentDate||'never')+'</div></div>'+
+    (l.snippet?'<div class="kv"><span>Their reply</span><div>'+esc(l.snippet)+'</div></div>':'')+
+    (l.notes?'<div class="kv"><span>Notes</span><div>'+esc(l.notes)+'</div></div>':'')+
+    '<h2 class="sec">Change status</h2><div class="btnrow">'+
+      S.map(function(s){ return '<button class="btn ghost sm" data-st="'+s+'"'+
+        (s===l.status?' disabled':'')+'>'+s+'</button>'; }).join('')+
+    '</div><p class="tiny" style="margin-top:13px">Back to Active also makes the lead due today.</p>');
 
   $('#ov').querySelectorAll('[data-st]').forEach(function(b){
-    b.onclick = function(){
-      var st = b.dataset.st;
-      $('#ov').querySelectorAll('[data-st]').forEach(function(x){ x.disabled = true; });
-      b.innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
-      api('uiSetLeadStatus', [l.threadId, st]).then(function(d){
-        LEADS = d; close(); renderLeads(); refreshHeader();
-        toast('Set to ' + st);
-      }).catch(function(e){ close(); toast(e.message, true); });
+    b.onclick=function(){
+      var st=b.dataset.st;
+      $('#ov').querySelectorAll('[data-st]').forEach(function(x){ x.disabled=true; });
+      b.innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+      api('uiSetLeadStatus',[l.threadId,st]).then(function(d){
+        LEADS=d; closeSheet(); renderLeads(); refreshHeader(); toast('Set to '+st);
+      }).catch(function(e){ closeSheet(); toast(e.message,true); });
     };
   });
 }
@@ -408,117 +445,222 @@ function openLead(l){
 // TAB: add lead
 // ============================================================
 function renderAdd(){
-  var seqOpts = (SEQS || []).map(function(s){
-    return '<option value="' + esc(s.name) + '">' + esc(s.name) + ' (' + s.steps.length + ')</option>';
-  }).join('');
-
   view().innerHTML =
-    '<div class="field">' +
-      '<label>Lead email</label>' +
-      '<input id="q" type="email" inputmode="email" autocapitalize="off" autocorrect="off" ' +
-             'placeholder="name@company.com" value="' + esc(LOOKUP) + '">' +
-    '</div>' +
-    '<button class="btn" id="go"><i class="fa-solid fa-magnifying-glass"></i>Find threads</button>' +
-    '<div id="res"></div>' +
-    '<datalist id="seqlist">' + seqOpts + '</datalist>';
-
-  $('#go').onclick = doSearch;
-  $('#q').onkeydown = function(e){ if (e.key === 'Enter') doSearch(); };
+    '<div class="field"><label>Lead email</label>'+
+      '<input id="q" type="email" inputmode="email" autocapitalize="off" autocorrect="off" '+
+             'spellcheck="false" placeholder="name@company.com" value="'+esc(LOOKUP)+'"></div>'+
+    '<button class="btn" id="go"><i class="fa-solid fa-magnifying-glass"></i>Find threads</button>'+
+    '<div id="res"></div>';
+  $('#go').onclick=doSearch;
+  $('#q').onkeydown=function(e){ if(e.key==='Enter') doSearch(); };
   if (FOUND) paintResults();
 }
 
 function doSearch(){
-  var q = $('#q').value.trim();
-  if (!q) { toast('Enter an email address', true); return; }
-  LOOKUP = q; FOUND = null;
-  $('#res').innerHTML = '<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>';
-  $('#go').disabled = true;
-  api('uiSearchThreads', [q]).then(function(d){
-    FOUND = d; $('#go').disabled = false; paintResults();
-  }).catch(function(e){
-    $('#go').disabled = false;
-    $('#res').innerHTML = nothing('triangle-exclamation', e.message);
-  });
+  var q=$('#q').value.trim();
+  if(!q){ toast('Enter an email address',true); return; }
+  LOOKUP=q; FOUND=null;
+  $('#res').innerHTML='<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>';
+  $('#go').disabled=true;
+  api('uiSearchThreads',[q]).then(function(d){ FOUND=d; $('#go').disabled=false; paintResults(); })
+   .catch(function(e){ $('#go').disabled=false; $('#res').innerHTML=nothing('triangle-exclamation','Search failed',e.message); });
 }
 
 function paintResults(){
-  if (!FOUND.length){ $('#res').innerHTML = nothing('inbox', 'No Gmail threads with ' + LOOKUP); return; }
-  $('#res').innerHTML =
-    '<h2 class="sec">' + FOUND.length + ' thread' + (FOUND.length > 1 ? 's' : '') + '</h2>' +
-    FOUND.map(function(t, i){
-      return '<div class="card' + (t.alreadyIn ? '' : ' tap') + '" data-th="' + i + '">' +
-        '<div class="row">' +
-          '<div class="grow"><div class="nm ell">' + esc(t.subject || '(no subject)') + '</div></div>' +
-          (t.alreadyIn ? '<span class="st st-' + esc(t.alreadyIn) + '">' + esc(t.alreadyIn) + '</span>'
-                       : '<i class="fa-solid fa-chevron-right" style="color:var(--faint);font-size:12px"></i>') +
-        '</div>' +
-        '<div class="sub" style="white-space:normal">' + esc(t.body.substring(0, 150)) + '…</div>' +
-        '<div class="meta">' +
-          '<span><i class="fa-regular fa-clock"></i>' + esc(t.date) + '</span>' +
-          '<span><i class="fa-regular fa-envelope"></i>' + t.msgCount + ' msg</span>' +
-        '</div>' +
-      '</div>';
+  if(!FOUND.length){ $('#res').innerHTML=nothing('inbox','No threads found','Nothing in Gmail with '+LOOKUP); return; }
+  $('#res').innerHTML='<h2 class="sec">'+FOUND.length+' thread'+(FOUND.length>1?'s':'')+'</h2>'+
+    FOUND.map(function(t,i){
+      return '<div class="card'+(t.alreadyIn?'':' tap')+'" data-th="'+i+'">'+
+        '<div class="row"><div class="grow"><div class="nm ell">'+esc(t.subject||'(no subject)')+'</div></div>'+
+        (t.alreadyIn?chip(t.alreadyIn)
+                    :'<i class="fa-solid fa-chevron-right" style="color:var(--faint);font-size:12px"></i>')+
+        '</div>'+
+        '<div class="sub" style="white-space:normal">'+esc(t.body.substring(0,140))+'…</div>'+
+        '<div class="meta"><span><i class="fa-regular fa-clock"></i>'+esc(t.date)+'</span>'+
+        '<span><i class="fa-regular fa-envelope"></i>'+t.msgCount+' msg</span></div></div>';
     }).join('');
-
   $('#res').querySelectorAll('[data-th]').forEach(function(el){
-    var t = FOUND[+el.dataset.th];
-    if (t.alreadyIn) return;
-    el.onclick = function(){ openEnroll(t); };
+    var t=FOUND[+el.dataset.th];
+    if(t.alreadyIn) return;
+    el.onclick=function(){ openEnroll(t); };
   });
 }
 
 function openEnroll(t){
-  var seqOpts = (SEQS || []).map(function(s){
-    return '<option value="' + esc(s.name) + '">' + esc(s.name) + ' — ' + s.steps.length + ' steps</option>';
-  }).join('');
+  var opts=(SEQS||[]).map(function(s){
+    return '<option value="'+esc(s.name)+'">'+esc(s.name)+' — '+s.steps.length+' steps</option>'; }).join('');
+  openSheet('Enroll lead',
+    '<div class="kv"><span>Thread</span><div>'+esc(t.subject||'(no subject)')+'</div></div>'+
+    '<div class="kv" style="margin-bottom:18px"><span>Email</span><div>'+esc(LOOKUP)+'</div></div>'+
+    '<div class="field"><label>Lead name</label><input id="en" placeholder="John Smith">'+
+      '<p class="tiny" style="margin:7px 0 0">Used by {{firstName}}. Leave blank only if your messages never use it.</p></div>'+
+    '<div class="field"><label>Sequence</label>'+
+      (opts?'<select id="es"><option value="">— pick one —</option>'+opts+'</select>'
+           :'<input id="es" placeholder="sequence name">')+'</div>'+
+    '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Enroll</button>');
 
-  var html =
-    '<div class="sheet" id="ov"><div class="sheet-in">' +
-      '<div class="sheet-hd">' +
-        '<h3>Enroll lead</h3>' +
-        '<button class="x" id="ovx"><i class="fa-solid fa-xmark"></i></button>' +
-      '</div>' +
-      '<div class="kv"><span>Thread</span><div>' + esc(t.subject || '(no subject)') + '</div></div>' +
-      '<div class="kv" style="margin-bottom:16px"><span>Email</span><div>' + esc(LOOKUP) + '</div></div>' +
-      '<div class="field">' +
-        '<label>Lead name</label>' +
-        '<input id="en" placeholder="John Smith">' +
-        '<p class="muted" style="margin:6px 0 0;font-size:11.5px">' +
-          'Used by {{firstName}}. Leave blank only if your messages do not use it.</p>' +
-      '</div>' +
-      '<div class="field">' +
-        '<label>Sequence</label>' +
-        (seqOpts ? '<select id="es"><option value="">— pick one —</option>' + seqOpts + '</select>'
-                 : '<input id="es" placeholder="sequence name">') +
-      '</div>' +
-      '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Enroll</button>' +
-    '</div></div>';
-
-  var wrap = document.createElement('div');
-  wrap.innerHTML = html;
-  document.body.appendChild(wrap.firstChild);
-
-  var close = function(){ var o = $('#ov'); if (o) o.remove(); };
-  $('#ovx').onclick = close;
-  $('#ov').onclick  = function(e){ if (e.target.id === 'ov') close(); };
-
-  $('#ok').onclick = function(){
-    var nm = $('#en').value.trim();
-    var sq = $('#es').value.trim();
-    if (!sq){ toast('Pick a sequence', true); return; }
-    $('#ok').disabled = true;
-    $('#ok').innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
-    api('uiEnrollLead', [t.threadId, LOOKUP, nm, sq, 0]).then(function(d){
-      LEADS = d; close();
-      t.alreadyIn = 'Active'; paintResults();
-      refreshHeader();
+  $('#ok').onclick=function(){
+    var nm=$('#en').value.trim(), sq=$('#es').value.trim();
+    if(!sq){ toast('Pick a sequence',true); return; }
+    $('#ok').disabled=true; $('#ok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiEnrollLead',[t.threadId,LOOKUP,nm,sq,0]).then(function(d){
+      LEADS=d; closeSheet(); t.alreadyIn='Active'; paintResults(); refreshHeader();
       toast('Enrolled — first send tomorrow');
     }).catch(function(e){
-      $('#ok').disabled = false;
-      $('#ok').innerHTML = '<i class="fa-solid fa-check"></i>Enroll';
-      toast(e.message, true);
+      $('#ok').disabled=false; $('#ok').innerHTML='<i class="fa-solid fa-check"></i>Enroll';
+      toast(e.message,true);
     });
   };
+}
+
+// ============================================================
+// TAB: steps  (chips + editing)
+// ============================================================
+function renderSeq(){
+  if(!SEQS){ busy(); loadSeqs().then(renderSeq).catch(fail); return; }
+
+  // keep the selected sequence if it still exists, else fall back to the first
+  if(!CURSEQ || !SEQS.some(function(s){ return s.name===CURSEQ; })){
+    CURSEQ = SEQS.length ? SEQS[0].name : null;
+  }
+
+  var chips = SEQS.map(function(s){
+    return '<button class="chip'+(s.name===CURSEQ?' on':'')+'" data-seq="'+esc(s.name)+'">'+
+           esc(s.name)+'<span class="n">'+s.steps.length+'</span></button>';
+  }).join('') + '<button class="chip new" id="newseq"><i class="fa-solid fa-plus"></i> New</button>';
+
+  var cur = SEQS.filter(function(s){ return s.name===CURSEQ; })[0];
+
+  var body;
+  if(!cur){
+    body = nothing('layer-group','No sequences yet','Tap New to create your first one.');
+  } else if(!cur.steps.length){
+    body = nothing('feather','No steps in '+cur.name,'Add step 1 and it will start sending.');
+  } else {
+    body = cur.steps.map(function(st){
+      return '<div class="card tap" data-step="'+st.n+'">'+
+        '<div class="row" style="margin-bottom:10px">'+
+          '<div class="grow"><b style="font-size:13.5px;letter-spacing:-.01em">Step '+st.n+'</b></div>'+
+          '<span class="st st-Done"><span class="dot"></span>wait '+st.awaitDays+'d</span>'+
+        '</div><pre class="msg">'+esc(st.message)+'</pre></div>';
+    }).join('');
+  }
+
+  view().innerHTML = '<div class="chips">'+chips+'</div>' + body +
+    (cur ? '<button class="btn ghost" id="addstep" style="margin-top:4px">'+
+           '<i class="fa-solid fa-plus"></i>Add step '+(cur.steps.length+1)+'</button>'+
+           '<p class="tiny" style="margin-top:12px">Wait days = how long AFTER this step before the next one goes out.</p>' : '');
+
+  view().querySelectorAll('[data-seq]').forEach(function(b){
+    b.onclick=function(){ CURSEQ=b.dataset.seq; renderSeq(); };
+  });
+  $('#newseq').onclick = openNewSeq;
+  if(cur){
+    $('#addstep').onclick=function(){ openStep(cur, null); };
+    view().querySelectorAll('[data-step]').forEach(function(el){
+      el.onclick=function(){
+        var n=+el.dataset.step;
+        openStep(cur, cur.steps.filter(function(s){ return s.n===n; })[0]);
+      };
+    });
+  }
+}
+
+function openNewSeq(){
+  openSheet('New sequence',
+    '<div class="field"><label>Name</label>'+
+      '<input id="sn" placeholder="loomFollowUp" autocapitalize="off" spellcheck="false">'+
+      '<p class="tiny" style="margin:7px 0 0">This exact name goes in the sequenceName column. '+
+      'No spaces is easiest.</p></div>'+
+    '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Create</button>');
+  $('#ok').onclick=function(){
+    var n=$('#sn').value.trim();
+    if(!n){ toast('Enter a name',true); return; }
+    $('#ok').disabled=true; $('#ok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiAddSequence',[n]).then(function(d){
+      SEQS=d; CURSEQ=n; closeSheet(); renderSeq(); toast('Created '+n);
+    }).catch(function(e){
+      $('#ok').disabled=false; $('#ok').innerHTML='<i class="fa-solid fa-check"></i>Create';
+      toast(e.message,true);
+    });
+  };
+}
+
+function openStep(seq, step){
+  var isNew = !step;
+  var n = isNew ? seq.steps.length+1 : step.n;
+  openSheet((isNew?'Add step ':'Edit step ')+n,
+    '<div class="pair">'+
+      '<div class="field"><label>Wait days</label>'+
+        '<input id="ad" type="number" min="1" inputmode="numeric" value="'+(isNew?3:step.awaitDays)+'"></div>'+
+      '<div class="field"><label>Sequence</label><input value="'+esc(seq.name)+'" disabled></div>'+
+    '</div>'+
+    '<div class="field"><label>Message</label>'+
+      '<textarea id="ms" placeholder="Hey {{firstName}}, just following up…">'+
+      (isNew?'':esc(step.message))+'</textarea>'+
+      '<p class="tiny" style="margin:7px 0 0">Variables: {{firstName}} {{leadName}} {{leadEmail}}<br>'+
+      'Image on its own line: [IMG 50%] https://drive.google.com/file/d/ID/view</p></div>'+
+    '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Save step '+n+'</button>'+
+    (isNew?'':'<button class="btn danger" id="del" style="margin-top:9px">'+
+              '<i class="fa-solid fa-trash"></i>Delete step '+n+'</button>'));
+
+  $('#ok').onclick=function(){
+    var msg=$('#ms').value.trim();
+    if(!msg){ toast('Message cannot be empty',true); return; }
+    $('#ok').disabled=true; $('#ok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiSaveStep',[seq.name,n,+$('#ad').value||1,msg]).then(function(d){
+      SEQS=d; closeSheet(); renderSeq(); toast('Step '+n+' saved');
+    }).catch(function(e){
+      $('#ok').disabled=false; $('#ok').innerHTML='<i class="fa-solid fa-check"></i>Save step '+n;
+      toast(e.message,true);
+    });
+  };
+
+  if(!isNew){
+    var armed=false;
+    $('#del').onclick=function(){
+      if(!armed){
+        armed=true;
+        $('#del').innerHTML='<i class="fa-solid fa-triangle-exclamation"></i>Tap again to delete';
+        setTimeout(function(){
+          armed=false;
+          if($('#del')) $('#del').innerHTML='<i class="fa-solid fa-trash"></i>Delete step '+n;
+        },3200);
+        return;
+      }
+      $('#del').disabled=true; $('#ok').disabled=true;
+      api('uiDeleteStep',[seq.name,n]).then(function(d){
+        SEQS=d; closeSheet(); renderSeq(); toast('Step '+n+' deleted');
+      }).catch(function(e){ $('#del').disabled=false; $('#ok').disabled=false; toast(e.message,true); });
+    };
+  }
+}
+
+function loadSeqs(){ return api('uiGetSequences').then(function(d){ SEQS=d; return d; }); }
+
+// ============================================================
+// TAB: log
+// ============================================================
+function renderLog(){
+  busy();
+  api('uiGetLog',[50]).then(function(rows){
+    if(!rows.length){ view().innerHTML=nothing('receipt','Nothing sent yet','The log fills up once the chain runs.'); return; }
+    var tone=function(r){
+      if(r==='Sent') return 'st-Replied';
+      if(r==='Failed'||r==='Sent-WriteError') return 'st-Error';
+      return 'st-Done';
+    };
+    view().innerHTML=rows.map(function(r){
+      return '<div class="card"><div class="row">'+
+        '<div class="grow"><div class="nm ell" style="font-size:14px">'+esc(r.email)+'</div></div>'+
+        '<span class="st '+tone(r.result)+'"><span class="dot"></span>'+
+          esc(r.result.replace('Skipped - ',''))+'</span></div>'+
+        (r.preview?'<div class="sub ell">'+esc(r.preview)+'</div>':'')+
+        '<div class="meta"><span><i class="fa-regular fa-clock"></i>'+esc(r.time)+'</span>'+
+        (r.sequence?'<span><i class="fa-solid fa-layer-group"></i>'+esc(r.sequence)+' · step '+esc(r.step)+'</span>':'')+
+        '</div></div>';
+    }).join('');
+  }).catch(fail);
 }
 
 // ============================================================
@@ -527,142 +669,75 @@ function openEnroll(t){
 function renderSettings(){
   busy();
   api('uiGetSettings').then(function(list){
-    var pause = list.filter(function(s){ return s.name === 'pauseAllFollowUps'; })[0];
-    var isOn  = pause && pause.value.toUpperCase() === 'TRUE';
+    var pause=list.filter(function(s){ return s.name==='pauseAllFollowUps'; })[0];
+    var isOn=pause && pause.value.toUpperCase()==='TRUE';
 
-    view().innerHTML =
-      '<div class="switch' + (isOn ? ' armed' : '') + '">' +
-        '<div class="grow">' +
-          '<b>' + (isOn ? 'Follow-ups paused' : 'Follow-ups running') + '</b>' +
-          '<div class="muted" style="font-size:12.5px">' +
-            (isOn ? 'Nothing will be sent until you switch this off'
-                  : 'Emergency stop for every lead') + '</div>' +
-        '</div>' +
-        '<button class="knob' + (isOn ? ' on' : '') + '" id="pz"></button>' +
-      '</div>' +
-      '<button class="btn ghost" id="run"><i class="fa-solid fa-play"></i>Run chain now</button>' +
-      '<h2 class="sec">All settings</h2>' +
-      list.filter(function(s){ return s.name !== 'pauseAllFollowUps'; }).map(function(s){
-        return '<div class="field">' +
-          '<label>' + esc(s.name) + '</label>' +
-          '<input data-set="' + esc(s.name) + '" value="' + esc(s.value) + '"' +
-                 (s.name === 'webAppToken' ? ' disabled' : '') + '>' +
-        '</div>';
-      }).join('') +
-      '<p class="muted" style="font-size:12px;margin-top:-4px">Changes save when you tap away from a field.</p>';
+    view().innerHTML=
+      '<div class="switch'+(isOn?' armed':'')+'"><div class="grow">'+
+        '<b>'+(isOn?'Follow-ups paused':'Follow-ups running')+'</b>'+
+        '<div class="muted" style="font-size:12.5px">'+
+        (isOn?'Nothing sends until you switch this off':'Emergency stop for every lead')+'</div></div>'+
+        '<button class="knob'+(isOn?' on':'')+'" id="pz"></button></div>'+
+      '<button class="btn ghost" id="run"><i class="fa-solid fa-play"></i>Run chain now</button>'+
+      '<h2 class="sec">All settings</h2>'+
+      list.filter(function(s){ return s.name!=='pauseAllFollowUps'; }).map(function(s){
+        return '<div class="field"><label>'+esc(s.name)+'</label>'+
+          '<input data-set="'+esc(s.name)+'" value="'+esc(s.value)+'"'+
+          (s.name==='webAppToken'?' disabled':'')+'></div>';
+      }).join('')+
+      '<p class="tiny">Fields save when you tap away. Connection: '+
+        (NATIVE?'served by Apps Script':'remote via API_URL')+'</p>';
 
-    $('#pz').onclick = function(){
-      var next = isOn ? 'FALSE' : 'TRUE';
-      $('#pz').disabled = true;
-      api('uiSaveSetting', ['pauseAllFollowUps', next]).then(function(){
+    $('#pz').onclick=function(){
+      var next=isOn?'FALSE':'TRUE';
+      $('#pz').disabled=true;
+      api('uiSaveSetting',['pauseAllFollowUps',next]).then(function(){
         renderSettings(); refreshHeader();
-        toast(next === 'TRUE' ? 'Everything paused' : 'Follow-ups resumed');
-      }).catch(function(e){ $('#pz').disabled = false; toast(e.message, true); });
+        toast(next==='TRUE'?'Everything paused':'Follow-ups resumed');
+      }).catch(function(e){ $('#pz').disabled=false; toast(e.message,true); });
     };
 
-    $('#run').onclick = function(){
-      $('#run').disabled = true;
-      $('#run').innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>Starting';
+    $('#run').onclick=function(){
+      $('#run').disabled=true; $('#run').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>Starting';
       api('uiRunChainNow').then(function(m){
         toast(m); refreshHeader();
-        $('#run').disabled = false;
-        $('#run').innerHTML = '<i class="fa-solid fa-play"></i>Run chain now';
+        $('#run').disabled=false; $('#run').innerHTML='<i class="fa-solid fa-play"></i>Run chain now';
       }).catch(function(e){
-        $('#run').disabled = false;
-        $('#run').innerHTML = '<i class="fa-solid fa-play"></i>Run chain now';
-        toast(e.message, true);
+        $('#run').disabled=false; $('#run').innerHTML='<i class="fa-solid fa-play"></i>Run chain now';
+        toast(e.message,true);
       });
     };
 
     view().querySelectorAll('[data-set]').forEach(function(inp){
-      var original = inp.value;
-      inp.onblur = function(){
-        if (inp.value === original || inp.disabled) return;
-        var want = inp.value;
-        api('uiSaveSetting', [inp.dataset.set, want]).then(function(){
-          original = want; refreshHeader(); toast('Saved ' + inp.dataset.set);
-        }).catch(function(e){ inp.value = original; toast(e.message, true); });
+      var original=inp.value;
+      inp.onblur=function(){
+        if(inp.value===original||inp.disabled) return;
+        var want=inp.value;
+        api('uiSaveSetting',[inp.dataset.set,want]).then(function(){
+          original=want; refreshHeader(); toast('Saved '+inp.dataset.set);
+        }).catch(function(e){ inp.value=original; toast(e.message,true); });
       };
     });
   }).catch(fail);
 }
 
 // ============================================================
-// TAB: log
-// ============================================================
-function renderLog(){
-  busy();
-  api('uiGetLog', [50]).then(function(rows){
-    if (!rows.length){ view().innerHTML = nothing('receipt', 'Nothing sent yet.'); return; }
-    var tone = function(r){
-      if (r === 'Sent') return 'st-Replied';
-      if (r === 'Failed' || r === 'Sent-WriteError') return 'st-Error';
-      return 'st-Done';
-    };
-    view().innerHTML = rows.map(function(r){
-      return '<div class="card">' +
-        '<div class="row">' +
-          '<div class="grow"><div class="nm ell" style="font-size:13.5px">' + esc(r.email) + '</div></div>' +
-          '<span class="st ' + tone(r.result) + '">' + esc(r.result.replace('Skipped - ','')) + '</span>' +
-        '</div>' +
-        (r.preview ? '<div class="sub ell">' + esc(r.preview) + '</div>' : '') +
-        '<div class="meta">' +
-          '<span><i class="fa-regular fa-clock"></i>' + esc(r.time) + '</span>' +
-          (r.sequence ? '<span><i class="fa-solid fa-layer-group"></i>' + esc(r.sequence) +
-                        ' · ' + esc(r.step) + '</span>' : '') +
-        '</div>' +
-      '</div>';
-    }).join('');
-  }).catch(fail);
-}
-
-// ============================================================
-// TAB: sequences (read only)
-// ============================================================
-function renderSeq(){
-  if (!SEQS){ busy(); loadSeqs().then(renderSeq).catch(fail); return; }
-  if (!SEQS.length){ view().innerHTML = nothing('layer-group', 'No sequences in the Sequences sheet.'); return; }
-
-  view().innerHTML = SEQS.map(function(s){
-    return '<h2 class="sec">' + esc(s.name) + ' · ' + s.steps.length + ' steps</h2>' +
-      s.steps.map(function(st){
-        return '<div class="card">' +
-          '<div class="row" style="margin-bottom:9px">' +
-            '<div class="grow"><b style="font-size:13px">Step ' + st.n + '</b></div>' +
-            '<span class="st st-Done">wait ' + st.awaitDays + 'd</span>' +
-          '</div>' +
-          '<pre class="msg">' + esc(st.message) + '</pre>' +
-        '</div>';
-      }).join('');
-  }).join('') +
-  '<p class="muted" style="margin-top:16px;font-size:12.5px">' +
-    'Read-only here — editing long message text is far easier in the Sheet.</p>';
-}
-
-function loadSeqs(){
-  return api('uiGetSequences').then(function(d){ SEQS = d; return d; });
-}
-
-// ============================================================
 // routing
 // ============================================================
-var TABS = { leads:renderLeads, add:renderAdd, settings:renderSettings, log:renderLog, seq:renderSeq };
+var TABS={leads:renderLeads,add:renderAdd,seq:renderSeq,log:renderLog,settings:renderSettings};
 
 function go(tab){
-  TAB = tab;
   document.querySelectorAll('nav button').forEach(function(b){
-    b.classList.toggle('on', b.dataset.tab === tab);
+    b.classList.toggle('on', b.dataset.tab===tab);
   });
-  window.scrollTo(0, 0);
+  try{ window.scrollTo(0,0); }catch(e){}
   TABS[tab]();
 }
-
 document.querySelectorAll('nav button').forEach(function(b){
-  b.onclick = function(){ go(b.dataset.tab); };
+  b.onclick=function(){ go(b.dataset.tab); };
 });
 
-// boot: sequences are needed by the Add tab's picker, so fetch them up front
-loadSeqs().catch(function(){ SEQS = []; });
+loadSeqs().catch(function(){ SEQS=[]; });
 refreshHeader();
 go('leads');
 </script>

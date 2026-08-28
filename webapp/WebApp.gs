@@ -55,7 +55,10 @@ function doPost(e) {
     uiEnrollLead:    uiEnrollLead,
     uiGetLog:        uiGetLog,
     uiGetSequences:  uiGetSequences,
-    uiRunChainNow:   uiRunChainNow
+    uiRunChainNow:   uiRunChainNow,
+    uiAddSequence:   uiAddSequence,
+    uiSaveStep:      uiSaveStep,
+    uiDeleteStep:    uiDeleteStep
   };
 
   try {
@@ -426,4 +429,136 @@ function uiGetSequences() {
     out.push({ name: name, steps: steps });
   }
   return out;
+}
+
+// ============================================================
+// API - SEQUENCE EDITING
+// ============================================================
+//
+// The Sequences sheet is column PAIRS sharing rows: awaitDays, then a message
+// column whose header is the sequence name. Because the pairs share rows, we
+// never insert or delete whole rows here - that would shift every other
+// sequence. We only ever touch the two columns belonging to one sequence.
+//
+// The engine (getSequenceStep) stops at the first empty message row, so steps
+// must stay contiguous from row 2 down. Every function below preserves that.
+
+/** Returns the 1-based message column for a sequence, or throws. */
+function _uiSeqCol(sheet, seqName) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) throw new Error('Sequences sheet is empty.');
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const want = String(seqName).trim();
+  for (let i = 0; i < headers.length; i++) {
+    if (String(headers[i]).trim() === want) {
+      if (i < 1) throw new Error('"' + want + '" has no awaitDays column to its left.');
+      return i + 1;
+    }
+  }
+  throw new Error('Sequence not found: ' + want);
+}
+
+/** Reads one sequence's steps as [{awaitDays, message}], stopping at the first blank. */
+function _uiReadSteps(sheet, msgCol) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const vals = sheet.getRange(2, msgCol - 1, lastRow - 1, 2).getValues();
+  const out = [];
+  for (let i = 0; i < vals.length; i++) {
+    const msg = String(vals[i][1] || '').trim();
+    if (!msg) break;
+    out.push({ awaitDays: Number(vals[i][0]) || 1, message: msg });
+  }
+  return out;
+}
+
+/**
+ * Creates a new sequence: an awaitDays column plus a named message column,
+ * placed after a spacer so the layout matches what Setup builds.
+ */
+function uiAddSequence(name) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('Enter a sequence name.');
+  if (name.toLowerCase() === 'awaitdays') throw new Error('That name is reserved.');
+
+  const sheet   = getSheet(CONFIG.sheets.sequences);
+  const lastCol = sheet.getLastColumn();
+
+  if (lastCol >= 1) {
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    for (let i = 0; i < headers.length; i++) {
+      if (String(headers[i]).trim() === name) {
+        throw new Error('A sequence called "' + name + '" already exists.');
+      }
+    }
+  }
+
+  const start = lastCol > 0 ? lastCol + 2 : 1;   // +2 leaves a spacer column
+  const need  = start + 1;
+  if (need > sheet.getMaxColumns()) sheet.insertColumnsAfter(sheet.getMaxColumns(), need - sheet.getMaxColumns());
+
+  sheet.getRange(1, start).setValue('awaitDays').setFontWeight('bold');
+  sheet.getRange(1, start + 1).setValue(name).setFontWeight('bold');
+  sheet.setColumnWidth(start, 100);
+  sheet.setColumnWidth(start + 1, 350);
+  SpreadsheetApp.flush();
+
+  Logger.log('uiAddSequence: created "' + name + '" in columns ' + start + '/' + (start + 1));
+  return uiGetSequences();
+}
+
+/**
+ * Writes one step. stepNumber may be an existing step (edit) or exactly one
+ * past the end (append) - never further, since a gap would silently end the
+ * sequence early for every lead running it.
+ */
+function uiSaveStep(seqName, stepNumber, awaitDays, message) {
+  const sheet  = getSheet(CONFIG.sheets.sequences);
+  const msgCol = _uiSeqCol(sheet, seqName);
+  const steps  = _uiReadSteps(sheet, msgCol);
+
+  const n = Number(stepNumber);
+  if (!n || n < 1) throw new Error('Bad step number.');
+  if (n > steps.length + 1) {
+    throw new Error('Step ' + n + ' would leave a gap. The next step here is ' + (steps.length + 1) + '.');
+  }
+
+  const msg = String(message || '').trim();
+  if (!msg) throw new Error('Message cannot be empty. Use delete to remove a step.');
+
+  const row = n + 1;
+  if (row > sheet.getMaxRows()) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), row - sheet.getMaxRows());
+  }
+
+  sheet.getRange(row, msgCol - 1).setValue(Number(awaitDays) || 1);
+  sheet.getRange(row, msgCol).setValue(msg);
+  SpreadsheetApp.flush();
+
+  Logger.log('uiSaveStep: ' + seqName + ' step ' + n + ' (' + msg.length + ' chars)');
+  return uiGetSequences();
+}
+
+/**
+ * Removes a step and closes the gap, rewriting only this sequence's two
+ * columns so other sequences sharing those rows are untouched.
+ */
+function uiDeleteStep(seqName, stepNumber) {
+  const sheet  = getSheet(CONFIG.sheets.sequences);
+  const msgCol = _uiSeqCol(sheet, seqName);
+  const steps  = _uiReadSteps(sheet, msgCol);
+
+  const n = Number(stepNumber);
+  if (!n || n < 1 || n > steps.length) throw new Error('Step ' + stepNumber + ' does not exist.');
+
+  steps.splice(n - 1, 1);
+
+  // Rewrite the whole block, one blank row longer, to clear the old tail.
+  const block = steps.map(function (s) { return [s.awaitDays, s.message]; });
+  block.push(['', '']);
+  sheet.getRange(2, msgCol - 1, block.length, 2).setValues(block);
+  SpreadsheetApp.flush();
+
+  Logger.log('uiDeleteStep: ' + seqName + ' step ' + n + ' removed, ' + steps.length + ' left');
+  return uiGetSequences();
 }
