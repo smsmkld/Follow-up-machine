@@ -5,7 +5,20 @@
 const CONFIG = {
   // Auto-detected from the Google account running this script.
   // All replies go here and sending always comes from this account.
-  sendingAccounts: [Session.getActiveUser().getEmail()],
+  //
+  // getActiveUser() can come back EMPTY under a time-based trigger on a
+  // consumer Gmail account. An empty string here is poison: JavaScript says
+  // 'anything'.includes('') === true, so isSendingAccount would match every
+  // sender alive and silently switch off reply, bounce AND OOO detection.
+  // getEffectiveUser() is the account the script actually runs as and is
+  // reliable, so it goes first. Blanks are dropped, and a throw is caught so
+  // this can never break the whole script at load time.
+  sendingAccounts: (function () {
+    const out = [];
+    try { const e = Session.getEffectiveUser().getEmail(); if (e) out.push(e); } catch (err) {}
+    try { const a = Session.getActiveUser().getEmail();    if (a && out.indexOf(a) === -1) out.push(a); } catch (err) {}
+    return out;
+  })(),
 
   // TEMPORARY absence. A real person who is simply away - safe to resume later.
   oooKeywords: [
@@ -233,6 +246,7 @@ function setupSpreadsheet() {
     ['replyCheckBeforeSend',       'TRUE'],
     ['oooAutoResume',              'FALSE'],
     ['oooResumeDays',              '7'],
+    ['replyResumeDays',            '7'],
     ['enrollDefaultSequence',      ''],
     ['enrollDefaultTotalSteps',    '0'],
     ['enrollDefaultResumeOnReply', 'FALSE'],
@@ -680,6 +694,9 @@ function startDailyRun() {
 
   // Check OOO auto-resume
   checkOooAutoResume();
+
+  // Put "said yes then went quiet" leads back into their sequence.
+  checkReplyAutoResume();
 
   // Record sends count at chain start so processOneLead can detect if THIS run sent anything
   PropertiesService.getScriptProperties().setProperty('sendsAtChainStart', String(getSendsToday()));
@@ -1247,11 +1264,61 @@ function processSingleLead(lead) {
 
   // ── Step 5b: Genuine reply detection (if enabled in Settings) ──
   const replyCheckEnabled = getSetting('replyCheckBeforeSend').toUpperCase() !== 'FALSE';
-  Logger.log('processSingleLead: replyCheckEnabled=' + replyCheckEnabled);
-  if (replyCheckEnabled && !fromUs) {
-    Logger.log(leadEmail + ': lead replied - setting Replied');
+  if (!replyCheckEnabled) {
+    Logger.log('WARNING: replyCheckBeforeSend is FALSE - ' + leadEmail +
+               ' will be mailed even if they already replied. Set it TRUE in Settings.');
+  }
+
+  // If this lead was resumed from Replied, every message they sent BEFORE that
+  // resume has already been dealt with. Without this cutoff the search below
+  // finds that old reply, sets Replied again, and the lead can never actually
+  // resume - it just bounces between Active and Replied forever.
+  // Stored to the MINUTE, not the day. A date-only cutoff can never let a
+  // resume send on the same day the lead replied, which makes the whole
+  // feature impossible to see working until tomorrow.
+  let resumeCutoff = '';
+  try {
+    const rNotes = String(activeSheet.getRange(currentRow(), c.notes).getValue() || '');
+    const rMarks = rNotes.match(/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\][^\n]*Resumed from Replied/gi);
+    if (rMarks) resumeCutoff = rMarks[rMarks.length - 1].match(/\[([^\]]+)\]/)[1];
+  } catch (e) { Logger.log(leadEmail + ': could not read resume cutoff - ' + e.message); }
+
+  // Search EVERY message in the thread, newest first - not just the latest one.
+  // Checking only the latest misses the most common real case: the lead
+  // replies, you answer them by hand from Gmail, and now the thread ends with
+  // YOUR message - so the sequence marches on at someone you are already
+  // talking to. Once a human exchange has started, automation stops.
+  // Matching the lead's own address keeps mailer-daemon bounces and any other
+  // thread participants out of this, so bounces still reach the bounce branch.
+  let leadReply = null;
+  const leadAddr = String(leadEmail).toLowerCase().trim();
+  if (leadAddr) {
+    for (let m = messages.length - 1; m >= 0; m--) {
+      if (String(messages[m].getFrom()).toLowerCase().indexOf(leadAddr) === -1) continue;
+      // Strictly before the resume moment = already handled. Anything older is
+      // older still, so stop looking. Formatted in the configured timezone so
+      // it compares against the note on the same clock. 'yyyy-MM-dd HH:mm' is
+      // fixed width, so a plain string compare orders it correctly.
+      if (resumeCutoff) {
+        const mStamp = Utilities.formatDate(messages[m].getDate(),
+                         getSetting('timezone') || 'UTC', 'yyyy-MM-dd HH:mm');
+        if (mStamp < resumeCutoff) break;
+      }
+      leadReply = messages[m];
+      break;
+    }
+  }
+
+  if (replyCheckEnabled && leadReply) {
+    let replyText = '';
+    try { replyText = stripHtml(leadReply.getBody()); }
+    catch (e) { replyText = leadReply.getPlainBody() || ''; }
+    Logger.log(leadEmail + ': lead replied at ' + leadReply.getDate() + ' - setting Replied');
     setStatusSafe('Replied');
-    try { writeCell(c.lastReplySnippet, snippet); }
+    // Dated marker. checkReplyAutoResume measures replyResumeDays from this,
+    // so without it a lead with resumeOnReply ticked can never come back.
+    appendNote('[' + today + '] Lead replied - paused.');
+    try { writeCell(c.lastReplySnippet, replyText.substring(0, 120)); }
     catch (e) { Logger.log(leadEmail + ': could not write reply snippet - ' + e.message); }
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Skipped - Lead replied');
     SpreadsheetApp.flush();
@@ -1467,9 +1534,15 @@ function checkOooAutoResume() {
     // Falls back to lastSentDate if no note found.
     let oooSetDate = '';
     const notes = String(row[c.notes - 1] || '');
-    const oooNoteMatch = notes.match(/\[(\d{4}-\d{2}-\d{2})\][^\n]*OOO/i);
-    if (oooNoteMatch) {
-      oooSetDate = oooNoteMatch[1];
+    // Take the LAST OOO note, not the first. .match without /g returns the
+    // oldest one, so a lead who went OOO in June, resumed, then went OOO
+    // again yesterday gets measured from June - already past resumeDays -
+    // and gets emailed while they are still away.
+    // Matching "OOO/bounce detected" specifically also stops the
+    // "Auto-resumed from OOO" line being read as an OOO date.
+    const oooNotes = notes.match(/\[(\d{4}-\d{2}-\d{2})\][^\n]*OOO\/bounce detected/gi);
+    if (oooNotes) {
+      oooSetDate = oooNotes[oooNotes.length - 1].match(/\[(\d{4}-\d{2}-\d{2})\]/)[1];
     } else {
       // Fallback: use lastSentDate
       oooSetDate = sheetDateToStr(row[c.lastSentDate - 1]);
@@ -1639,7 +1712,8 @@ function sendTestEmail() {
              ' | awaitDays ' + stepData.awaitDays +
              ' | image ' + (imgUrl ? imgSize : 'none'));
 
-  const htmlBody  = textPart.replace(/\n/g, '<br>');
+  const safeText  = imgBlob ? textPart : textPart.replace(/\{\{IMG_PLACEHOLDER\}\}\n?/g, '');
+  const htmlBody  = safeText.replace(/\n/g, '<br>');
   let   finalHtml = htmlBody;
   const subject   = '[TEST] Step ' + stepToPreview + ' | ' + lead.sequenceName + ' | ' + lead.leadEmail;
 
@@ -2137,6 +2211,14 @@ function _enrollLeadInner(sheet, row) {
  * Returns null if the step row is empty or doesn't exist.
  */
 function getSequenceStep(sequenceName, stepNumber) {
+  // A blank name would match an empty header cell - the spacer column between
+  // two sequences - read an empty message, return null, and processSingleLead
+  // would take that as "sequence finished" and mark the lead Done. The lead is
+  // never emailed and nothing anywhere says why. Fail loudly instead: this
+  // routes to the Error branch, which writes a note you can actually see.
+  if (!String(sequenceName || '').trim()) {
+    throw new Error('sequenceName is blank - set it in ActiveFollowUps');
+  }
   const sheet   = getSheet(CONFIG.sheets.sequences);
   const lastCol = sheet.getLastColumn();
   const lastRow = sheet.getLastRow();
@@ -2269,7 +2351,11 @@ function sendReplyRaw(thread, toEmail, bodyText, imgBlob, imgSize) {
     : messageIdHeader;
 
   const fromEmail = Session.getActiveUser().getEmail();
-  const htmlBody  = bodyText.replace(/\n/g, '<br>');
+  // If the Drive image could not be fetched there is no <img> tag to swap in,
+  // and without this the lead reads the literal text {{IMG_PLACEHOLDER}}
+  // sitting in the middle of the email.
+  const safeText  = imgBlob ? bodyText : bodyText.replace(/\{\{IMG_PLACEHOLDER\}\}\n?/g, '');
+  const htmlBody  = safeText.replace(/\n/g, '<br>');
 
   let rawEmail;
 
@@ -2476,7 +2562,13 @@ function getSendingAccounts() {
 function isSendingAccount(emailStr) {
   if (!emailStr) return false;
   const lower = emailStr.toLowerCase();
-  return CONFIG.sendingAccounts.some(a => lower.includes(a.toLowerCase()));
+  // Drop blank entries before comparing. A single '' in this list would make
+  // .includes() true for every sender, which reads every reply as our own.
+  // If nothing resolves we return false, so a reply is DETECTED and the
+  // follow-up is held - the safe direction to fail in.
+  return CONFIG.sendingAccounts
+    .filter(a => a && String(a).trim())
+    .some(a => lower.includes(String(a).toLowerCase().trim()));
 }
 
 /**
@@ -2693,4 +2785,165 @@ function firstSendDate() {
 
   const now = nowInTz();
   return now < endT ? today : addDays(today, 1);
+}
+
+// ============================================================
+// SECTION: REPLY AUTO-RESUME
+// ============================================================
+
+/**
+ * Timestamp in the configured timezone, to the minute: 'yyyy-MM-dd HH:mm'.
+ * Network free, so it is safe anywhere.
+ */
+function nowStampInTz() {
+  const tz = getSetting('timezone') || 'UTC';
+  return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+}
+
+/**
+ * Called at the start of startDailyRun(), next to checkOooAutoResume().
+ *
+ * A lead who says "yeah, interesting" and then goes quiet is the most valuable
+ * lead there is, and without this they sit at Replied forever. When
+ * resumeOnReply is ticked for that lead, this puts them back into the sequence
+ * after replyResumeDays of silence - continuing at the step they stopped on,
+ * not starting over. Reply again and they pause again, and the cycle repeats
+ * from the new date.
+ *
+ * replyResumeDays = 0 means resume on the next run. Useful for testing.
+ */
+function checkReplyAutoResume() {
+  const resumeDays  = parseInt(getSetting('replyResumeDays') || '7');
+  const activeSheet = getSheet(CONFIG.sheets.activeFollowUps);
+  const lastRow     = activeSheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const data  = activeSheet.getRange(2, 1, lastRow - 1, CONFIG.cols.notes).getValues();
+  const today = todayStr();
+  const c     = CONFIG.cols;
+
+  data.forEach((row, i) => {
+    if (String(row[c.status - 1]).trim() !== 'Replied') return;
+
+    // Per-lead opt in. The column is a checkbox so it arrives as a real
+    // boolean, but a hand-typed TRUE arrives as text - accept both.
+    const flag    = row[c.resumeOnReply - 1];
+    const optedIn = flag === true || String(flag).trim().toUpperCase() === 'TRUE';
+    if (!optedIn) return;
+
+    // When did they reply? Newest "Lead replied" note wins, so a lead who has
+    // been round this loop before is measured from their LATEST reply.
+    const notes = String(row[c.notes - 1] || '');
+    const marks = notes.match(/\[(\d{4}-\d{2}-\d{2})\][^\n]*Lead replied/gi);
+    const repliedOn = marks
+      ? marks[marks.length - 1].match(/\[(\d{4}-\d{2}-\d{2})\]/)[1]
+      : sheetDateToStr(row[c.lastSentDate - 1]);   // fallback for older rows
+    if (!repliedOn) return;
+
+    if (today < addDays(repliedOn, resumeDays)) return;   // still inside the quiet period
+
+    const sheetRow = i + 2;
+    const step     = Number(row[c.sequenceStep - 1]) || 0;
+    activeSheet.getRange(sheetRow, c.status).setValue('Active');
+    activeSheet.getRange(sheetRow, c.nextSendDate).setValue(today);
+
+    // This note is the cutoff processSingleLead reads. It MUST be written, and
+    // it MUST carry the time, or the lead is flipped straight back to Replied.
+    const existing = activeSheet.getRange(sheetRow, c.notes).getValue();
+    const note = '[' + nowStampInTz() + '] Resumed from Replied after ' + resumeDays +
+                 ' days of silence - continuing at step ' + step + '.';
+    activeSheet.getRange(sheetRow, c.notes).setValue(existing ? existing + '\n' + note : note);
+    Logger.log('Reply auto-resumed: ' + String(row[c.leadEmail - 1]) +
+               ' (replied ' + repliedOn + ', silent ' + resumeDays + ' days, step ' + step + ')');
+  });
+
+  SpreadsheetApp.flush();
+}
+
+// ============================================================
+// SECTION: TESTING HELPERS
+// ============================================================
+
+/**
+ * Forget that a lead was already handled today so the chain will pick it up
+ * again on the next run.
+ *
+ * The duplicate-send guard lives in Script Properties, NOT in the sheet, so
+ * editing the row by hand does not clear it. That is deliberate - it is what
+ * makes a double send impossible even when a sheet write fails - but it means
+ * you need this to re-test a lead on the same day.
+ */
+function unparkLead() {
+  const THREAD_ID = '';   // blank = clear them all
+
+  const props = PropertiesService.getScriptProperties();
+  if (!THREAD_ID) {
+    props.deleteProperty('parkedLeads');
+    Logger.log('Cleared ALL parked leads for today.');
+    return;
+  }
+  const raw = props.getProperty('parkedLeads');
+  if (!raw) { Logger.log('Nothing is parked right now.'); return; }
+
+  const obj = JSON.parse(raw);
+  if (!obj.ids || !obj.ids[THREAD_ID]) {
+    Logger.log(THREAD_ID + ' is not parked. Currently parked: ' + JSON.stringify(obj.ids || {}));
+    return;
+  }
+  const was = obj.ids[THREAD_ID];
+  delete obj.ids[THREAD_ID];
+  props.setProperty('parkedLeads', JSON.stringify(obj));
+  Logger.log('Unparked ' + THREAD_ID + ' (was: "' + was + '"). Still parked: ' + JSON.stringify(obj.ids));
+}
+
+/**
+ * Prints exactly what the reply check sees for one lead.
+ * Set LEAD_EMAIL, run, then read the log in Executions.
+ */
+function debugReplyCheck() {
+  const LEAD_EMAIL = 'put-the-lead-email-here@example.com';
+
+  let active, effective;
+  try { active    = Session.getActiveUser().getEmail(); }    catch (e) { active    = 'THREW: ' + e.message; }
+  try { effective = Session.getEffectiveUser().getEmail(); } catch (e) { effective = 'THREW: ' + e.message; }
+
+  Logger.log('getActiveUser().getEmail()    = "' + active + '"');
+  Logger.log('getEffectiveUser().getEmail() = "' + effective + '"');
+  Logger.log('CONFIG.sendingAccounts        = ' + JSON.stringify(CONFIG.sendingAccounts));
+  Logger.log('replyCheckBeforeSend setting  = "' + getSetting('replyCheckBeforeSend') + '"');
+  Logger.log('replyResumeDays setting       = "' + getSetting('replyResumeDays') + '"');
+  Logger.log('now in configured tz          = ' + nowStampInTz());
+
+  const sheet   = getSheet(CONFIG.sheets.activeFollowUps);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) { Logger.log('No leads in ActiveFollowUps.'); return; }
+
+  const c    = CONFIG.cols;
+  const data = sheet.getRange(2, 1, lastRow - 1, c.notes).getValues();
+
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][c.leadEmail - 1]).trim().toLowerCase() !==
+        LEAD_EMAIL.trim().toLowerCase()) continue;
+
+    const threadId = String(data[i][c.threadId - 1]).trim();
+    Logger.log('--- row ' + (i + 2) + ' | ' + LEAD_EMAIL + ' | threadId ' + threadId);
+    Logger.log('status=' + data[i][c.status - 1] + ' | resumeOnReply=' + data[i][c.resumeOnReply - 1] +
+               ' | step=' + data[i][c.sequenceStep - 1]);
+    Logger.log('notes:\n' + String(data[i][c.notes - 1] || '(empty)'));
+
+    const thread = GmailApp.getThreadById(threadId);
+    if (!thread) { Logger.log('THREAD NOT FOUND - the reply landed in a different thread.'); return; }
+
+    const msgs = thread.getMessages();
+    Logger.log('thread has ' + msgs.length + ' message(s):');
+    msgs.forEach((m, n) => Logger.log('  [' + n + '] ' +
+      Utilities.formatDate(m.getDate(), getSetting('timezone') || 'UTC', 'yyyy-MM-dd HH:mm') +
+      '   from: ' + m.getFrom()));
+
+    const from = msgs[msgs.length - 1].getFrom();
+    Logger.log('latest sender            = ' + from);
+    Logger.log('isSendingAccount(latest) = ' + isSendingAccount(from));
+    return;
+  }
+  Logger.log('Lead ' + LEAD_EMAIL + ' not found in ActiveFollowUps.');
 }
