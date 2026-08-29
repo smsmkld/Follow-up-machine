@@ -66,6 +66,7 @@ function doPost(e) {
     uiPreviewStep:   uiPreviewStep,
     uiTestSendStep:  uiTestSendStep,
     uiAddLeadColumn: uiAddLeadColumn,
+    uiDeleteLeadColumn: uiDeleteLeadColumn,
     uiRunAction:     uiRunAction
   };
 
@@ -962,4 +963,52 @@ function uiRunAction(action) {
     default:
       throw new Error('Unknown action: ' + action);
   }
+}
+
+/**
+ * Removes a column you previously added to ActiveFollowUps.
+ *
+ * Refuses for the built-in columns the engine depends on, and refuses while
+ * any sequence message still uses the token - otherwise the next email a real
+ * prospect receives would contain the literal {{token}}.
+ */
+function uiDeleteLeadColumn(name) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('No column named.');
+
+  const c       = CONFIG.cols;
+  const sheet   = getSheet(CONFIG.sheets.activeFollowUps);
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+  let col = -1;
+  for (let i = 0; i < headers.length; i++) {
+    if (String(headers[i]).trim() === name) { col = i + 1; break; }
+  }
+  if (col === -1) throw new Error('No column called "' + name + '".');
+  if (col <= c.notes) {
+    throw new Error('"' + name + '" is a built-in column the system needs. ' +
+                    'Only columns you added yourself can be removed.');
+  }
+
+  const token = '{{' + name + '}}';
+  const used  = [];
+  try {
+    uiGetSequences().forEach(function (s) {
+      s.steps.forEach(function (st) {
+        if (st.message.indexOf(token) !== -1) used.push(s.name + ' step ' + st.n);
+      });
+    });
+  } catch (e) {
+    Logger.log('uiDeleteLeadColumn: could not scan sequences - ' + e.message);
+  }
+  if (used.length) {
+    throw new Error(token + ' is still used in ' + used.join(', ') +
+      '. Take it out of those messages first, or a lead would be emailed the raw token.');
+  }
+
+  sheet.deleteColumns(col, 1);
+  SpreadsheetApp.flush();
+  Logger.log('uiDeleteLeadColumn: removed "' + name + '" (was column ' + col + ')');
+  return { name: name };
 }

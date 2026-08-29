@@ -367,14 +367,34 @@ function createTriggers() {
   PropertiesService.getScriptProperties().setProperty('recurringDailyTriggerUid', dailyTrigger.getUniqueId());
   Logger.log('createTriggers: recurring daily trigger UID saved: ' + dailyTrigger.getUniqueId());
 
-  // Weekly notification trigger: fires every Monday at 9am
-  // (day is also controlled by notificationDay setting, but the trigger fires Monday;
-  //  the function checks notificationDay and only sends if it matches)
+  // Weekly notification trigger, on whatever day notificationDay names.
+  //
+  // This used to be hardcoded to MONDAY while weeklyNotificationTrigger only
+  // sends when today matches notificationDay - so any other day meant the
+  // trigger fired Monday, saw a mismatch, and skipped. You simply never got a
+  // weekly summary, with nothing to show why.
+  //
+  // Re-run this function after changing notificationDay.
+  const WEEKDAYS = {
+    sunday:    ScriptApp.WeekDay.SUNDAY,
+    monday:    ScriptApp.WeekDay.MONDAY,
+    tuesday:   ScriptApp.WeekDay.TUESDAY,
+    wednesday: ScriptApp.WeekDay.WEDNESDAY,
+    thursday:  ScriptApp.WeekDay.THURSDAY,
+    friday:    ScriptApp.WeekDay.FRIDAY,
+    saturday:  ScriptApp.WeekDay.SATURDAY
+  };
+  const _notifDay = String(getSetting('notificationDay') || 'Monday').trim().toLowerCase();
+  const _weekDay  = WEEKDAYS[_notifDay] || ScriptApp.WeekDay.MONDAY;
+  if (!WEEKDAYS[_notifDay]) {
+    Logger.log('createTriggers: notificationDay "' + _notifDay + '" not recognised - using Monday');
+  }
   ScriptApp.newTrigger('weeklyNotificationTrigger')
     .timeBased()
-    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .onWeekDay(_weekDay)
     .atHour(9)
     .create();
+  Logger.log('createTriggers: weekly summary trigger set for ' + _notifDay);
 
   // Installable onEdit trigger for InboxScanner checkbox (needs Gmail access)
   ScriptApp.newTrigger('watchEnrollCheckbox')
@@ -385,7 +405,7 @@ function createTriggers() {
   Logger.log(
     'Triggers created!\n\n' +
     '• startDailyRun fires every day at 8am\n' +
-    '• weeklyNotificationTrigger fires every Monday at 9am\n' +
+    '• weeklyNotificationTrigger fires every ' + _notifDay + ' at 9am\n' +
     '• watchEnrollCheckbox fires on every spreadsheet edit\n\n' +
     'Verify in Extensions → Apps Script → Triggers.'
   );
