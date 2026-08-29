@@ -228,6 +228,46 @@ pre.msg{
   max-height:190px;overflow:hidden;
 }
 
+/* ── lead cards (accent bar + relative date) ──── */
+.lead{position:relative;padding-left:16px;overflow:hidden}
+.lead::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gray)}
+.lead.a-Active::before {background:var(--blue)}
+.lead.a-Replied::before{background:var(--green)}
+.lead.a-OOO::before    {background:var(--amber)}
+.lead.a-Bounced::before,.lead.a-Error::before{background:var(--red)}
+.lead.a-Paused::before {background:var(--purple)}
+.when{font-variant-numeric:tabular-nums;font-weight:600}
+.when.due{color:var(--amber)}
+.when.late{color:var(--red)}
+
+/* ── variable picker ──────────────────────────── */
+.vars{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.vchip{
+  background:var(--surf3);border:1px solid var(--line2);color:var(--dim);
+  border-radius:7px;padding:6px 10px;font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  cursor:pointer;transition:all .12s;font-family:ui-monospace,monospace;
+}
+.vchip:active{transform:scale(.94)}
+.vchip.custom{color:var(--amber);border-color:rgba(255,192,67,.28)}
+
+/* ── preview ──────────────────────────────────── */
+.preview{
+  background:#fff;color:#111;border-radius:11px;padding:16px;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  word-break:break-word;max-height:52vh;overflow-y:auto;
+}
+.preview img{max-width:100%;height:auto}
+.pnote{
+  background:rgba(255,192,67,.09);border:1px solid rgba(255,192,67,.3);color:var(--amber);
+  border-radius:9px;padding:10px 12px;font-size:12.5px;margin-bottom:11px;
+}
+.seg{display:flex;gap:7px;margin-bottom:14px}
+.seg button{
+  flex:1;background:var(--surf2);border:1px solid var(--line);color:var(--dim);
+  border-radius:9px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;
+}
+.seg button.on{background:var(--surf3);border-color:var(--line2);color:var(--txt)}
+
 /* ── toast ────────────────────────────────────── */
 #toast{
   position:fixed;left:50%;transform:translateX(-50%);
@@ -349,6 +389,19 @@ function nothing(icon, title, sub){
 function chip(status){
   return '<span class="st st-'+esc(status||'Done')+'"><span class="dot"></span>'+esc(status)+'</span>';
 }
+/** "today" / "in 3d" / "2d overdue" - far easier to scan than a raw date. */
+function rel(dateStr){
+  if(!dateStr) return {txt:'',cls:''};
+  var today = STATS ? STATS.today : '';
+  if(!today) return {txt:dateStr,cls:''};
+  if(dateStr === today) return {txt:'today',cls:'due'};
+  var a=new Date(dateStr+'T00:00:00'), b=new Date(today+'T00:00:00');
+  if(isNaN(a)||isNaN(b)) return {txt:dateStr,cls:''};
+  var d=Math.round((a-b)/86400000);
+  if(d<0)  return {txt:Math.abs(d)+'d overdue',cls:'late'};
+  if(d===1)return {txt:'tomorrow',cls:''};
+  return {txt:'in '+d+'d',cls:''};
+}
 function closeSheet(){ var o=$('#ov'); if(o) o.remove(); }
 function openSheet(title, inner){
   closeSheet();
@@ -367,12 +420,14 @@ function openSheet(title, inner){
 // state
 // ============================================================
 var LEADS=null, SEQS=null, FOUND=null, LOOKUP='', CURSEQ=null;
+var STATS=null, VARS=null, LFILTER='all';
 
 // ============================================================
 // header
 // ============================================================
 function refreshHeader(){
   api('uiGetStats').then(function(s){
+    STATS = s;
     $('#s1').textContent = s.sendsToday+'/'+s.maxSends;
     $('#s2').textContent = s.counts.Active;
     $('#s3').textContent = s.counts.Replied;
@@ -390,54 +445,118 @@ function renderLeads(){
   if (!LEADS){ busy(); api('uiGetLeads').then(function(d){ LEADS=d; renderLeads(); }).catch(fail); return; }
   if (!LEADS.length){ view().innerHTML = nothing('users','No leads yet','Use the Add tab to enroll your first one.'); return; }
 
-  var order={Active:0,Error:1,OOO:2,Bounced:3,Replied:4,Paused:5,Done:6};
-  var sorted=LEADS.slice().sort(function(a,b){
-    var d=(order[a.status]===undefined?9:order[a.status])-(order[b.status]===undefined?9:order[b.status]);
-    return d!==0?d:String(a.nextSendDate).localeCompare(String(b.nextSendDate));
-  });
+  var GROUP={Error:'issues',Bounced:'issues',OOO:'issues',
+             Active:'active',Replied:'replied',Paused:'done',Done:'done'};
+  var FILTERS=[
+    {k:'all',    label:'All'},
+    {k:'active', label:'Active'},
+    {k:'issues', label:'Needs you'},
+    {k:'replied',label:'Replied'},
+    {k:'done',   label:'Done'}
+  ];
+  var counts={all:LEADS.length,active:0,issues:0,replied:0,done:0};
+  LEADS.forEach(function(l){ var g=GROUP[l.status]; if(g) counts[g]++; });
 
-  view().innerHTML = sorted.map(function(l,i){
-    return '<div class="card tap" data-lead="'+i+'">'+
+  var order={Active:0,Error:1,OOO:2,Bounced:3,Replied:4,Paused:5,Done:6};
+  var list=LEADS.filter(function(l){ return LFILTER==='all' || GROUP[l.status]===LFILTER; })
+    .sort(function(a,b){
+      var d=(order[a.status]===undefined?9:order[a.status])-(order[b.status]===undefined?9:order[b.status]);
+      return d!==0?d:String(a.nextSendDate).localeCompare(String(b.nextSendDate));
+    });
+
+  var chips=FILTERS.filter(function(f){ return f.k==='all'||counts[f.k]; }).map(function(f){
+    return '<button class="chip'+(LFILTER===f.k?' on':'')+'" data-f="'+f.k+'">'+
+           f.label+'<span class="n">'+counts[f.k]+'</span></button>';
+  }).join('');
+
+  var body = list.length ? list.map(function(l,i){
+    var r=rel(l.nextSendDate);
+    var showWhen = (l.status==='Active' && r.txt);
+    return '<div class="card tap lead a-'+esc(l.status)+'" data-lead="'+i+'">'+
       '<div class="row"><div class="grow">'+
         '<div class="nm ell">'+esc(l.leadName||l.leadEmail)+'</div>'+
         '<div class="sub ell">'+esc(l.leadName?l.leadEmail:(l.sequenceName||'no sequence set'))+'</div>'+
       '</div>'+chip(l.status)+'</div>'+
       '<div class="meta">'+
         '<span><i class="fa-solid fa-list-ol"></i>Step '+l.step+(l.totalSteps?' / '+l.totalSteps:'')+'</span>'+
-        (l.nextSendDate?'<span><i class="fa-regular fa-calendar"></i>'+esc(l.nextSendDate)+'</span>':'')+
-        (l.sequenceName&&l.leadName?'<span><i class="fa-solid fa-layer-group"></i>'+esc(l.sequenceName)+'</span>':'')+
+        (l.sequenceName?'<span><i class="fa-solid fa-layer-group"></i>'+esc(l.sequenceName)+'</span>':'')+
+        (showWhen?'<span class="when '+r.cls+'"><i class="fa-regular fa-clock"></i>'+esc(r.txt)+'</span>':'')+
       '</div></div>';
-  }).join('');
+  }).join('') : nothing('filter','Nothing here','No leads match this filter.');
 
+  view().innerHTML='<div class="chips">'+chips+'</div>'+body;
+
+  view().querySelectorAll('[data-f]').forEach(function(b){
+    b.onclick=function(){ LFILTER=b.dataset.f; renderLeads(); };
+  });
   view().querySelectorAll('[data-lead]').forEach(function(el){
-    el.onclick=function(){ openLead(sorted[+el.dataset.lead]); };
+    el.onclick=function(){ openLead(list[+el.dataset.lead]); };
   });
 }
 
 function openLead(l){
-  var S=['Active','Paused','Replied','OOO','Bounced','Done','Error'];
   openSheet(l.leadName||l.leadEmail,
-    '<div class="kv"><span>Email</span><div>'+esc(l.leadEmail)+'</div></div>'+
-    '<div class="kv"><span>Sequence</span><div>'+esc(l.sequenceName||'—')+'</div></div>'+
-    '<div class="kv"><span>Step</span><div>'+l.step+(l.totalSteps?' of '+l.totalSteps:'')+'</div></div>'+
-    '<div class="kv"><span>Next send</span><div>'+esc(l.nextSendDate||'—')+'</div></div>'+
-    '<div class="kv"><span>Last sent</span><div>'+esc(l.lastSentDate||'never')+'</div></div>'+
-    (l.snippet?'<div class="kv"><span>Their reply</span><div>'+esc(l.snippet)+'</div></div>':'')+
-    (l.notes?'<div class="kv"><span>Notes</span><div>'+esc(l.notes)+'</div></div>':'')+
-    '<h2 class="sec">Change status</h2><div class="btnrow">'+
-      S.map(function(s){ return '<button class="btn ghost sm" data-st="'+s+'"'+
-        (s===l.status?' disabled':'')+'>'+s+'</button>'; }).join('')+
-    '</div><p class="tiny" style="margin-top:13px">Back to Active also makes the lead due today.</p>');
+    '<div class="loading" id="lrow"><i class="fa-solid fa-circle-notch spin"></i></div>');
 
-  $('#ov').querySelectorAll('[data-st]').forEach(function(b){
-    b.onclick=function(){
-      var st=b.dataset.st;
-      $('#ov').querySelectorAll('[data-st]').forEach(function(x){ x.disabled=true; });
-      b.innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
-      api('uiSetLeadStatus',[l.threadId,st]).then(function(d){
-        LEADS=d; closeSheet(); renderLeads(); refreshHeader(); toast('Set to '+st);
-      }).catch(function(e){ closeSheet(); toast(e.message,true); });
+  api('uiGetLeadRow',[l.threadId]).then(function(d){
+    var STATUSES=['Active','Paused','Replied','OOO','Bounced','Done','Error'];
+    var seqNames=(SEQS||[]).map(function(x){ return x.name; });
+
+    var fields=d.cells.map(function(c){
+      var id='f_'+c.col, v=esc(c.value);
+      var input;
+      if(c.readonly){
+        input='<input id="'+id+'" value="'+v+'" disabled>';
+      } else if(c.kind==='status'){
+        input='<select id="'+id+'">'+STATUSES.map(function(x){
+          return '<option'+(x===c.value?' selected':'')+'>'+x+'</option>'; }).join('')+'</select>';
+      } else if(c.kind==='sequence' && seqNames.length){
+        var known=seqNames.indexOf(c.value)!==-1;
+        input='<select id="'+id+'">'+
+          (known?'':'<option selected value="'+v+'">'+(v||'— none —')+'</option>')+
+          seqNames.map(function(x){
+            return '<option'+(x===c.value?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>';
+      } else if(c.kind==='bool'){
+        input='<select id="'+id+'"><option'+(/true/i.test(c.value)?' selected':'')+'>TRUE</option>'+
+              '<option'+(/true/i.test(c.value)?'':' selected')+'>FALSE</option></select>';
+      } else if(c.kind==='date'){
+        input='<input id="'+id+'" type="date" value="'+v+'">';
+      } else if(c.kind==='number'){
+        input='<input id="'+id+'" type="number" inputmode="numeric" value="'+v+'">';
+      } else if(c.kind==='long'){
+        input='<textarea id="'+id+'" style="min-height:80px">'+v+'</textarea>';
+      } else {
+        input='<input id="'+id+'" value="'+v+'">';
+      }
+      return '<div class="field"><label>'+esc(c.name)+'</label>'+input+'</div>';
+    }).join('');
+
+    $('#lrow').outerHTML =
+      '<p class="tiny" style="margin:-4px 0 15px">Row '+d.row+' — every column, custom ones included.</p>'+
+      fields+
+      '<button class="btn" id="lsave"><i class="fa-solid fa-check"></i>Save changes</button>';
+
+    $('#lsave').onclick=function(){
+      var updates={}, n=0;
+      d.cells.forEach(function(c){
+        if(c.readonly) return;
+        var el=$('#f_'+c.col); if(!el) return;
+        if(String(el.value)!==String(c.value)){ updates[c.name]=el.value; n++; }
+      });
+      if(!n){ toast('Nothing changed'); return; }
+      $('#lsave').disabled=true;
+      $('#lsave').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+      api('uiSaveLeadRow',[l.threadId,updates]).then(function(rows){
+        LEADS=rows; closeSheet(); renderLeads(); refreshHeader();
+        toast('Saved '+n+' field'+(n>1?'s':''));
+      }).catch(function(e){
+        $('#lsave').disabled=false;
+        $('#lsave').innerHTML='<i class="fa-solid fa-check"></i>Save changes';
+        toast(e.message,true);
+      });
     };
+  }).catch(function(e){
+    var el=$('#lrow'); if(el) el.outerHTML=nothing('triangle-exclamation','Could not load',e.message);
   });
 }
 
@@ -549,7 +668,9 @@ function renderSeq(){
   view().innerHTML = '<div class="chips">'+chips+'</div>' + body +
     (cur ? '<button class="btn ghost" id="addstep" style="margin-top:4px">'+
            '<i class="fa-solid fa-plus"></i>Add step '+(cur.steps.length+1)+'</button>'+
-           '<p class="tiny" style="margin-top:12px">Wait days = how long AFTER this step before the next one goes out.</p>' : '');
+           '<p class="tiny" style="margin:12px 0 16px">Wait days = how long AFTER this step before the next one goes out.</p>'+
+           '<button class="btn danger" id="delseq">'+
+           '<i class="fa-solid fa-trash"></i>Delete "'+esc(cur.name)+'"</button>' : '');
 
   view().querySelectorAll('[data-seq]').forEach(function(b){
     b.onclick=function(){ CURSEQ=b.dataset.seq; renderSeq(); };
@@ -557,6 +678,7 @@ function renderSeq(){
   $('#newseq').onclick = openNewSeq;
   if(cur){
     $('#addstep').onclick=function(){ openStep(cur, null); };
+    $('#delseq').onclick=function(){ openDelSeq(cur); };
     view().querySelectorAll('[data-step]').forEach(function(el){
       el.onclick=function(){
         var n=+el.dataset.step;
@@ -586,23 +708,135 @@ function openNewSeq(){
   };
 }
 
+function openDelSeq(seq){
+  openSheet('Delete sequence',
+    '<p class="muted" style="margin-top:0">This removes <b>'+esc(seq.name)+'</b> and its '+
+    seq.steps.length+' step'+(seq.steps.length===1?'':'s')+' from the Sequences sheet.</p>'+
+    '<p class="tiny">Leads that already finished keep their history. Leads still running it '+
+    'will block the delete — move them to another sequence first.</p>'+
+    '<button class="btn danger" id="dok" style="margin-top:8px">'+
+    '<i class="fa-solid fa-trash"></i>Delete '+esc(seq.name)+'</button>'+
+    '<button class="btn ghost" id="dno" style="margin-top:9px">Cancel</button>');
+  $('#dno').onclick=closeSheet;
+  var armed=false;
+  $('#dok').onclick=function(){
+    if(!armed){
+      armed=true;
+      $('#dok').innerHTML='<i class="fa-solid fa-triangle-exclamation"></i>Tap again to confirm';
+      setTimeout(function(){ armed=false;
+        if($('#dok')) $('#dok').innerHTML='<i class="fa-solid fa-trash"></i>Delete '+esc(seq.name); },3200);
+      return;
+    }
+    $('#dok').disabled=true; $('#dok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiDeleteSequence',[seq.name]).then(function(d){
+      SEQS=d; CURSEQ=null; closeSheet(); renderSeq(); toast('Deleted '+seq.name);
+    }).catch(function(e){
+      $('#dok').disabled=false;
+      $('#dok').innerHTML='<i class="fa-solid fa-trash"></i>Delete '+esc(seq.name);
+      toast(e.message,true);
+    });
+  };
+}
+
 function openStep(seq, step){
   var isNew = !step;
   var n = isNew ? seq.steps.length+1 : step.n;
+
+  var vchips = (VARS||[]).map(function(v){
+    return '<button class="vchip'+(v.kind==='custom'?' custom':'')+'" data-v="'+esc(v.token)+'">'+
+           esc(v.token)+'</button>';
+  }).join('');
+
   openSheet((isNew?'Add step ':'Edit step ')+n,
-    '<div class="pair">'+
-      '<div class="field"><label>Wait days</label>'+
-        '<input id="ad" type="number" min="1" inputmode="numeric" value="'+(isNew?3:step.awaitDays)+'"></div>'+
-      '<div class="field"><label>Sequence</label><input value="'+esc(seq.name)+'" disabled></div>'+
+    '<div class="seg">'+
+      '<button class="on" data-pane="edit"><i class="fa-solid fa-pen"></i> Edit</button>'+
+      '<button data-pane="prev"'+(isNew?' disabled style="opacity:.35"':'')+'>'+
+        '<i class="fa-regular fa-eye"></i> Preview</button>'+
     '</div>'+
-    '<div class="field"><label>Message</label>'+
-      '<textarea id="ms" placeholder="Hey {{firstName}}, just following up…">'+
-      (isNew?'':esc(step.message))+'</textarea>'+
-      '<p class="tiny" style="margin:7px 0 0">Variables: {{firstName}} {{leadName}} {{leadEmail}}<br>'+
-      'Image on its own line: [IMG 50%] https://drive.google.com/file/d/ID/view</p></div>'+
-    '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Save step '+n+'</button>'+
-    (isNew?'':'<button class="btn danger" id="del" style="margin-top:9px">'+
-              '<i class="fa-solid fa-trash"></i>Delete step '+n+'</button>'));
+
+    '<div id="pane-edit">'+
+      '<div class="pair">'+
+        '<div class="field"><label>Wait days</label>'+
+          '<input id="ad" type="number" min="1" inputmode="numeric" value="'+(isNew?3:step.awaitDays)+'"></div>'+
+        '<div class="field"><label>Sequence</label><input value="'+esc(seq.name)+'" disabled></div>'+
+      '</div>'+
+      '<div class="field"><label>Message</label>'+
+        '<textarea id="ms" placeholder="Hey {{firstName}}, just following up…">'+
+        (isNew?'':esc(step.message))+'</textarea>'+
+        '<div class="vars">'+vchips+
+          '<button class="vchip" data-v="[IMG 50%] ">[IMG]</button></div>'+
+        '<p class="tiny" style="margin:9px 0 0">Tap a variable to drop it in at the cursor. '+
+        'Amber ones come from your own columns.</p>'+
+      '</div>'+
+      '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Save step '+n+'</button>'+
+      (isNew?'':'<button class="btn danger" id="del" style="margin-top:9px">'+
+                '<i class="fa-solid fa-trash"></i>Delete step '+n+'</button>')+
+    '</div>'+
+
+    '<div id="pane-prev" hidden>'+
+      '<div class="field"><label>Show values from lead</label>'+
+        '<select id="pl"><option value="">— no lead, tokens stay visible —</option>'+
+        (LEADS||[]).map(function(l){
+          return '<option value="'+esc(l.threadId)+'">'+esc(l.leadName||l.leadEmail)+'</option>';
+        }).join('')+'</select></div>'+
+      '<div id="pbox"><div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div></div>'+
+      '<div class="field" style="margin-top:15px"><label>Send a test to</label>'+
+        '<input id="pe" type="email" inputmode="email" autocapitalize="off" spellcheck="false" '+
+               'placeholder="leave blank for your notificationEmail"></div>'+
+      '<button class="btn" id="ptest"><i class="fa-regular fa-paper-plane"></i>Send test email</button>'+
+      '<p class="tiny" style="margin-top:11px">Sends the real thing to you — no banner, image inline. '+
+      'Only the [TEST] subject prefix marks it.</p>'+
+    '</div>');
+
+  // variable chips insert at the cursor
+  $('#ov').querySelectorAll('[data-v]').forEach(function(b){
+    b.onclick=function(){
+      var ta=$('#ms'), tok=b.dataset.v;
+      var a=ta.selectionStart||0, z=ta.selectionEnd||0;
+      ta.value = ta.value.slice(0,a) + tok + ta.value.slice(z);
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = a + tok.length;
+    };
+  });
+
+  // pane switching
+  $('#ov').querySelectorAll('[data-pane]').forEach(function(b){
+    b.onclick=function(){
+      if(b.disabled) return;
+      $('#ov').querySelectorAll('[data-pane]').forEach(function(x){ x.classList.toggle('on', x===b); });
+      $('#pane-edit').hidden = b.dataset.pane!=='edit';
+      $('#pane-prev').hidden = b.dataset.pane!=='prev';
+      if(b.dataset.pane==='prev') loadPreview();
+    };
+  });
+
+  function loadPreview(){
+    var box=$('#pbox');
+    box.innerHTML='<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>';
+    api('uiPreviewStep',[seq.name,n,$('#pl').value]).then(function(p){
+      box.innerHTML =
+        (p.note?'<div class="pnote"><i class="fa-solid fa-circle-info"></i> '+esc(p.note)+'</div>':'')+
+        (p.hasVars?'<div class="pnote"><i class="fa-solid fa-triangle-exclamation"></i> '+
+                   'Some {{tokens}} did not resolve — that column is empty for this lead.</div>':'')+
+        // html is escaped server-side before the <br> and <img> tags go in
+        '<div class="preview">'+p.html+'</div>';
+    }).catch(function(e){ box.innerHTML=nothing('triangle-exclamation','Preview failed',e.message); });
+  }
+  if(!isNew) $('#pl').onchange = loadPreview;
+
+  if(!isNew){
+    $('#ptest').onclick=function(){
+      var btn=$('#ptest');
+      btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-circle-notch spin"></i>Sending';
+      api('uiTestSendStep',[seq.name,n,$('#pl').value,$('#pe').value.trim()]).then(function(m){
+        btn.disabled=false; btn.innerHTML='<i class="fa-regular fa-paper-plane"></i>Send test email';
+        toast(m);
+      }).catch(function(e){
+        btn.disabled=false; btn.innerHTML='<i class="fa-regular fa-paper-plane"></i>Send test email';
+        toast(e.message,true);
+      });
+    };
+  }
 
   $('#ok').onclick=function(){
     var msg=$('#ms').value.trim();
@@ -622,10 +856,8 @@ function openStep(seq, step){
       if(!armed){
         armed=true;
         $('#del').innerHTML='<i class="fa-solid fa-triangle-exclamation"></i>Tap again to delete';
-        setTimeout(function(){
-          armed=false;
-          if($('#del')) $('#del').innerHTML='<i class="fa-solid fa-trash"></i>Delete step '+n;
-        },3200);
+        setTimeout(function(){ armed=false;
+          if($('#del')) $('#del').innerHTML='<i class="fa-solid fa-trash"></i>Delete step '+n; },3200);
         return;
       }
       $('#del').disabled=true; $('#ok').disabled=true;
@@ -738,6 +970,7 @@ document.querySelectorAll('nav button').forEach(function(b){
 });
 
 loadSeqs().catch(function(){ SEQS=[]; });
+api('uiGetVariables').then(function(v){ VARS=v; }).catch(function(){ VARS=[]; });
 refreshHeader();
 go('leads');
 </script>

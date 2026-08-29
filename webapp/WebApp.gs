@@ -58,7 +58,13 @@ function doPost(e) {
     uiRunChainNow:   uiRunChainNow,
     uiAddSequence:   uiAddSequence,
     uiSaveStep:      uiSaveStep,
-    uiDeleteStep:    uiDeleteStep
+    uiDeleteStep:    uiDeleteStep,
+    uiDeleteSequence:uiDeleteSequence,
+    uiGetLeadRow:    uiGetLeadRow,
+    uiSaveLeadRow:   uiSaveLeadRow,
+    uiGetVariables:  uiGetVariables,
+    uiPreviewStep:   uiPreviewStep,
+    uiTestSendStep:  uiTestSendStep
   };
 
   try {
@@ -560,5 +566,325 @@ function uiDeleteStep(seqName, stepNumber) {
   SpreadsheetApp.flush();
 
   Logger.log('uiDeleteStep: ' + seqName + ' step ' + n + ' removed, ' + steps.length + ' left');
+  return uiGetSequences();
+}
+
+// ============================================================
+// API - FULL LEAD ROW
+// ============================================================
+
+/** Field kinds so the phone can pick the right input for each column. */
+function _uiKinds() {
+  const c = CONFIG.cols, k = {};
+  k[c.status]           = 'status';
+  k[c.nextSendDate]     = 'date';
+  k[c.lastSentDate]     = 'date';
+  k[c.sequenceStep]     = 'number';
+  k[c.totalSteps]       = 'number';
+  k[c.resumeOnReply]    = 'bool';
+  k[c.sequenceName]     = 'sequence';
+  k[c.notes]            = 'long';
+  k[c.lastReplySnippet] = 'long';
+  return k;
+}
+
+/**
+ * Returns every column of one lead's row, custom columns included, so the
+ * app can show and edit the whole row rather than a fixed subset.
+ */
+function uiGetLeadRow(threadId) {
+  const sheet = getSheet(CONFIG.sheets.activeFollowUps);
+  const row   = _uiFindRowByThreadId(sheet, threadId);
+  if (row === -1) throw new Error('That lead is no longer in ActiveFollowUps.');
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const values  = sheet.getRange(row, 1, 1, lastCol).getValues()[0];
+  const c = CONFIG.cols, kinds = _uiKinds();
+
+  const cells = [];
+  for (let i = 0; i < lastCol; i++) {
+    const name = String(headers[i] || '').trim();
+    if (!name) continue;
+    const col = i + 1;
+    const isDate = (col === c.nextSendDate || col === c.lastSentDate);
+    cells.push({
+      col:      col,
+      name:     name,
+      value:    isDate ? _uiDate(values[i])
+                       : (values[i] === null || values[i] === undefined ? '' : String(values[i])),
+      kind:     kinds[col] || 'text',
+      // threadId is the key we look the row up by - editing it would orphan the lead
+      readonly: col === c.threadId
+    });
+  }
+  return { row: row, threadId: threadId, cells: cells };
+}
+
+/** Writes back any subset of a lead's columns. Keyed by header name. */
+function uiSaveLeadRow(threadId, updates) {
+  const sheet = getSheet(CONFIG.sheets.activeFollowUps);
+  const row   = _uiFindRowByThreadId(sheet, threadId);
+  if (row === -1) throw new Error('That lead is no longer in ActiveFollowUps.');
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const c = CONFIG.cols;
+  const ALLOWED_STATUS = ['Active', 'Replied', 'Paused', 'Done', 'Error', 'OOO', 'Bounced'];
+
+  let changed = 0;
+  for (let i = 0; i < lastCol; i++) {
+    const name = String(headers[i] || '').trim();
+    if (!name || !updates.hasOwnProperty(name)) continue;
+
+    const col = i + 1;
+    if (col === c.threadId) continue;   // never editable
+
+    let v = updates[name];
+    if (col === c.status) {
+      v = String(v).trim();
+      if (ALLOWED_STATUS.indexOf(v) === -1) throw new Error('Unknown status: ' + v);
+    } else if (col === c.sequenceStep || col === c.totalSteps) {
+      v = Number(v) || 0;
+    } else if (col === c.resumeOnReply) {
+      v = (v === true || String(v).toUpperCase() === 'TRUE');
+    }
+
+    sheet.getRange(row, col).setValue(v);
+    changed++;
+  }
+
+  SpreadsheetApp.flush();
+  Logger.log('uiSaveLeadRow: row ' + row + ', ' + changed + ' field(s) written');
+  return uiGetLeads();
+}
+
+// ============================================================
+// API - VARIABLES
+// ============================================================
+
+/**
+ * Every {{token}} usable in a message: the three built-ins plus any extra
+ * column header added to ActiveFollowUps past the notes column.
+ */
+function uiGetVariables() {
+  const out = [
+    { token: '{{firstName}}', name: 'firstName', kind: 'built-in' },
+    { token: '{{leadName}}',  name: 'leadName',  kind: 'built-in' },
+    { token: '{{leadEmail}}', name: 'leadEmail', kind: 'built-in' }
+  ];
+  try {
+    const sheet   = getSheet(CONFIG.sheets.activeFollowUps);
+    const lastCol = sheet.getLastColumn();
+    if (lastCol > CONFIG.cols.notes) {
+      const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      for (let i = CONFIG.cols.notes; i < lastCol; i++) {
+        const h = String(headers[i] || '').trim();
+        if (h) out.push({ token: '{{' + h + '}}', name: h, kind: 'custom' });
+      }
+    }
+  } catch (e) {
+    Logger.log('uiGetVariables: ' + e.message);
+  }
+  return out;
+}
+
+// ============================================================
+// API - STEP PREVIEW & TEST SEND
+// ============================================================
+
+/** Pulls a lead's variable values. Returns blanks when threadId is empty. */
+function _uiResolveLead(threadId) {
+  const out = { leadName: '', leadEmail: '', customVars: {} };
+  if (!threadId) return out;
+
+  const sheet = getSheet(CONFIG.sheets.activeFollowUps);
+  const row   = _uiFindRowByThreadId(sheet, threadId);
+  if (row === -1) return out;
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const vals    = sheet.getRange(row, 1, 1, lastCol).getValues()[0];
+  const c = CONFIG.cols;
+
+  out.leadName  = String(vals[c.leadName - 1] || '');
+  out.leadEmail = String(vals[c.leadEmail - 1] || '');
+  for (let i = c.notes; i < lastCol; i++) {
+    const h = String(headers[i] || '').trim();
+    if (h) out.customVars[h] = String(vals[i] || '').trim();
+  }
+  return out;
+}
+
+/**
+ * Renders a step exactly as a lead would receive it, image included.
+ * The HTML comes back already escaped, so the page inserts it as-is.
+ */
+function uiPreviewStep(seqName, stepNumber, threadId) {
+  const stepData = getSequenceStep(seqName, Number(stepNumber));
+  if (!stepData || !stepData.message) {
+    throw new Error('Step ' + stepNumber + ' does not exist in "' + seqName + '".');
+  }
+
+  const L      = _uiResolveLead(threadId);
+  const parsed = parseMessage(stepData.message);
+  const text   = replaceVariables(parsed.text, L.leadName, L.leadEmail, L.customVars);
+
+  // Escape the message before it becomes HTML. {{IMG_PLACEHOLDER}} has no
+  // HTML characters so it survives this untouched.
+  const safe = String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let body = safe.replace(/\n/g, '<br>');
+
+  let imgTag = '';
+  let note   = '';
+  if (parsed.imgUrl) {
+    try {
+      const blob = getImageBlob(parsed.imgUrl);
+      if (!blob) {
+        note = 'Image URL could not be read.';
+      } else {
+        const bytes = blob.getBytes();
+        if (bytes.length > 3 * 1024 * 1024) {
+          note = 'Image is ' + Math.round(bytes.length / 1048576) +
+                 ' MB - too big to preview here, but it will still send.';
+        } else {
+          imgTag = '<img src="data:' + (blob.getContentType() || 'image/jpeg') +
+                   ';base64,' + Utilities.base64Encode(bytes) +
+                   '" style="width:' + (parsed.imgSize || '100%') +
+                   ';max-width:100%;border-radius:8px;display:block;margin:10px 0">';
+        }
+      }
+    } catch (e) {
+      note = 'Image failed to load: ' + e.message;
+    }
+  }
+
+  body = body.indexOf('{{IMG_PLACEHOLDER}}') !== -1
+    ? body.replace('{{IMG_PLACEHOLDER}}', imgTag)
+    : body + imgTag;
+
+  return {
+    html:      body,
+    note:      note,
+    awaitDays: stepData.awaitDays,
+    usedLead:  L.leadEmail,
+    hasVars:   /\{\{[^}]+\}\}/.test(text)   // an unresolved token is left visible
+  };
+}
+
+/**
+ * Sends one step to yourself as a real email. No banner - the body is exactly
+ * what a lead would get. Only the [TEST] subject prefix marks it.
+ * Images go inline via Content-ID, same as the live sender, because Gmail
+ * strips data: URIs out of email bodies.
+ */
+function uiTestSendStep(seqName, stepNumber, threadId, toEmail) {
+  const to = String(toEmail || '').trim() || getSetting('notificationEmail');
+  if (!to) throw new Error('No recipient. Set notificationEmail in Settings, or type an address.');
+  if (to.indexOf('@') === -1) throw new Error('"' + to + '" is not an email address.');
+
+  const stepData = getSequenceStep(seqName, Number(stepNumber));
+  if (!stepData || !stepData.message) {
+    throw new Error('Step ' + stepNumber + ' does not exist in "' + seqName + '".');
+  }
+
+  const L        = _uiResolveLead(threadId);
+  const parsed   = parseMessage(stepData.message);
+  const textPart = replaceVariables(parsed.text, L.leadName, L.leadEmail, L.customVars);
+  const subject  = '[TEST] ' + seqName + ' step ' + stepNumber +
+                   (L.leadEmail ? ' - ' + L.leadEmail : '');
+
+  let imgBlob = null;
+  if (parsed.imgUrl) {
+    try { imgBlob = getImageBlob(parsed.imgUrl); }
+    catch (e) { Logger.log('uiTestSendStep: image - ' + e.message); }
+  }
+
+  const htmlBody = textPart.replace(/\n/g, '<br>');
+
+  if (imgBlob) {
+    const cid      = 'test-' + Date.now();
+    const boundary = 'b_' + Utilities.getUuid().replace(/-/g, '');
+    const imgTag   = '<br><img src="cid:' + cid + '" style="width:' +
+                     (parsed.imgSize || '100%') + ';max-width:100%"><br>';
+    const withImg  = htmlBody.indexOf('{{IMG_PLACEHOLDER}}') !== -1
+      ? htmlBody.replace('{{IMG_PLACEHOLDER}}', imgTag)
+      : htmlBody + imgTag;
+
+    const raw = [
+      'MIME-Version: 1.0',
+      'From: ' + Session.getActiveUser().getEmail(),
+      'To: ' + to,
+      'Subject: ' + subject,
+      'Content-Type: multipart/related; boundary="' + boundary + '"',
+      '',
+      '--' + boundary,
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      withImg,
+      '',
+      '--' + boundary,
+      'Content-Type: ' + (imgBlob.getContentType() || 'image/jpeg') + '; name="image"',
+      'Content-Transfer-Encoding: base64',
+      'Content-ID: <' + cid + '>',
+      'Content-Disposition: inline; filename="image"',
+      '',
+      Utilities.base64Encode(imgBlob.getBytes()),
+      '',
+      '--' + boundary + '--'
+    ].join('\r\n');
+
+    Gmail.Users.Messages.send({ raw: Utilities.base64EncodeWebSafe(raw) }, 'me');
+  } else {
+    MailApp.sendEmail({
+      to: to,
+      subject: subject,
+      htmlBody: htmlBody.replace('{{IMG_PLACEHOLDER}}', '')
+    });
+  }
+
+  Logger.log('uiTestSendStep: ' + seqName + ' step ' + stepNumber + ' -> ' + to);
+  return 'Test sent to ' + to;
+}
+
+// ============================================================
+// API - DELETE A SEQUENCE
+// ============================================================
+
+/**
+ * Removes a sequence's two columns. Deleting columns is safe here (unlike
+ * deleting rows) because every lookup is by header name, not position.
+ *
+ * Refuses while leads are still running it. Finished leads - Done, Replied,
+ * Bounced, Error - never read the sequence again, so they do not block.
+ */
+function uiDeleteSequence(name) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('No sequence named.');
+
+  const sheet  = getSheet(CONFIG.sheets.sequences);
+  const msgCol = _uiSeqCol(sheet, name);
+
+  const LIVE    = ['Active', 'OOO', 'Paused'];
+  const active  = getSheet(CONFIG.sheets.activeFollowUps);
+  const lastRow = active.getLastRow();
+  if (lastRow >= 2) {
+    const c    = CONFIG.cols;
+    const rows = active.getRange(2, 1, lastRow - 1, c.status).getValues();
+    let live = 0;
+    rows.forEach(function (r) {
+      if (String(r[c.sequenceName - 1]).trim() === name &&
+          LIVE.indexOf(String(r[c.status - 1]).trim()) !== -1) live++;
+    });
+    if (live) {
+      throw new Error(live + ' lead' + (live > 1 ? 's are' : ' is') + ' still running "' + name +
+        '". Move them to another sequence, or mark them Done, then try again.');
+    }
+  }
+
+  sheet.deleteColumns(msgCol - 1, 2);
+  SpreadsheetApp.flush();
+  Logger.log('uiDeleteSequence: removed "' + name + '"');
   return uiGetSequences();
 }
