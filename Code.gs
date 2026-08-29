@@ -7,11 +7,22 @@ const CONFIG = {
   // All replies go here and sending always comes from this account.
   sendingAccounts: [Session.getActiveUser().getEmail()],
 
-  // OOO/bounce keywords (case-insensitive match against reply body)
+  // TEMPORARY absence. A real person who is simply away - safe to resume later.
   oooKeywords: [
-    'out of office', 'on leave', 'away from', 'vacation',
-    'undeliverable', 'delivery failed', 'bounce',
-    'auto-reply', 'automatic reply', 'not available', 'on holiday'
+    'out of office', 'on leave', 'away from the office', 'on vacation',
+    'auto-reply', 'automatic reply', 'autoreply', 'on holiday',
+    'annual leave', 'parental leave', 'maternity leave', 'currently away',
+    'back in the office', 'limited access to email'
+  ],
+
+  // PERMANENT failure. The address is dead - never resume, never retry.
+  // Checked BEFORE oooKeywords, because a bounce is the more specific case.
+  bounceKeywords: [
+    'undeliverable', 'delivery failed', 'delivery has failed',
+    'delivery status notification', 'address not found',
+    'recipient not found', 'no such user', 'user unknown',
+    'mailbox unavailable', 'mailbox full', 'account has been disabled',
+    'permanent error', 'message blocked', 'does not exist'
   ],
 
   // Sheet names
@@ -179,6 +190,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Setup spreadsheet (first time)', 'setupSpreadsheet')
     .addItem('Create daily trigger', 'createTriggers')
+    .addItem('Clean up stuck triggers', 'cleanUpStuckTriggers')
     .addItem('View all sequence names', 'listSequenceNames')
     .addSeparator()
     .addItem('Send notification email now', 'sendNotificationEmail')
@@ -286,7 +298,7 @@ function setupSpreadsheet() {
   const resumeValidation = SpreadsheetApp.newDataValidation().requireCheckbox().build();
   active.getRange('J2:J1000').setDataValidation(resumeValidation);
   const statusValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Active', 'Replied', 'Paused', 'Done', 'Error', 'OOO'], true)
+    .requireValueInList(['Active', 'Replied', 'Paused', 'Done', 'Error', 'OOO', 'Bounced'], true)
     .build();
   active.getRange('I2:I1000').setDataValidation(statusValidation);
   active.setColumnWidth(1, 130);
@@ -578,6 +590,16 @@ function startDailyRun() {
   for (const key in _settingsCache) delete _settingsCache[key];
   for (const key in _timeApiCache)  delete _timeApiCache[key];
 
+  // Only one chain at a time. Without this, hitting "Start follow-up chain now"
+  // while the 8am chain is running gives two independent chains that can both
+  // grab the same lead and email it twice. Returning here also protects the
+  // running chain from the trigger reap below, which would otherwise delete
+  // its pending next step.
+  if (chainIsRunning()) {
+    Logger.log('startDailyRun: a chain is already running - not starting a second one.');
+    return;
+  }
+
   // Clean up any one-time retry triggers for startDailyRun (created by scheduleWindowOpenTrigger).
   // The recurring daily trigger was created with everyDays(1) — we keep exactly one
   // startDailyRun trigger total. Any extras beyond the first are retry triggers to delete.
@@ -602,6 +624,18 @@ function startDailyRun() {
       Logger.log('startDailyRun: error checking trigger ' + t.getUniqueId() + ': ' + e.message);
     }
   });
+
+  // Reap orphaned processOneLead triggers. Google allows only 20 triggers per
+  // script. A brand new chain is about to start, so every existing
+  // processOneLead trigger is stale by definition. Delete them all.
+  let _reaped = 0;
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'processOneLead') {
+      try { ScriptApp.deleteTrigger(t); _reaped++; }
+      catch (err) { Logger.log('startDailyRun: could not delete stale processOneLead trigger - ' + err.message); }
+    }
+  });
+  Logger.log('startDailyRun: reaped ' + _reaped + ' stale processOneLead trigger(s) | total triggers now: ' + ScriptApp.getProjectTriggers().length);
 
   Logger.log('startDailyRun: pauseAllFollowUps=' + getSetting('pauseAllFollowUps'));
 
@@ -672,26 +706,10 @@ function startDailyRun() {
       const status = String(row[c.status - 1]).trim();
       if (status !== 'Active') continue;
 
-      let nextSendDate = '';
-      const nextRaw = row[c.nextSendDate - 1];
-      if (nextRaw instanceof Date) {
-        nextSendDate = nextRaw.getFullYear() + '-' +
-          String(nextRaw.getMonth() + 1).padStart(2, '0') + '-' +
-          String(nextRaw.getDate()).padStart(2, '0');
-      } else {
-        nextSendDate = String(nextRaw || '').trim();
-      }
+      const nextSendDate = sheetDateToStr(row[c.nextSendDate - 1]);
       if (!nextSendDate || !dateIsOnOrBefore(nextSendDate, today)) continue;
 
-      let lastSentDate = '';
-      const lastRaw = row[c.lastSentDate - 1];
-      if (lastRaw instanceof Date) {
-        lastSentDate = lastRaw.getFullYear() + '-' +
-          String(lastRaw.getMonth() + 1).padStart(2, '0') + '-' +
-          String(lastRaw.getDate()).padStart(2, '0');
-      } else {
-        lastSentDate = String(lastRaw || '').trim();
-      }
+      const lastSentDate = sheetDateToStr(row[c.lastSentDate - 1]);
       if (lastSentDate === today) continue;
 
       dueCount++;
@@ -718,6 +736,11 @@ function startDailyRun() {
   PropertiesService.getScriptProperties().setProperty('sendsAtChainStart', String(getSendsToday()));
   Logger.log('startDailyRun: sendsAtChainStart set to ' + getSendsToday());
 
+  // Claim the lock before scheduling. Without this the lock is not set until
+  // the first processOneLead fires 4-8 min later, leaving a window where a
+  // second startDailyRun sees no lock and starts a parallel chain.
+  markChainRunning();
+
   // Schedule the first processOneLead - it will chain itself from there
   scheduleNextProcessOneLead();
   Logger.log('startDailyRun: first processOneLead trigger scheduled - chain will begin shortly');
@@ -728,9 +751,14 @@ function startDailyRun() {
  * Deletes its own trigger first, then processes one lead, then reschedules.
  */
 function processOneLead(e) {
+  const runStart   = Date.now();
+  const MAX_RUN_MS = 4 * 60 * 1000; // bail out before the 6-minute Apps Script limit
+  const seen       = {};            // threadIds already handled in this execution
+  let   skipped    = 0;
+
   Logger.log('processOneLead: triggerUid=' + (e ? e.triggerUid : 'manual') + ' | sendsToday=' + getSendsToday() + ' | maxSends=' + getSetting('maxSendsPerDay'));
 
-  // Step 1: Delete this trigger immediately to prevent orphan buildup
+  // Delete this trigger immediately to prevent orphan buildup
   if (e && e.triggerUid) {
     ScriptApp.getProjectTriggers().forEach(t => {
       if (t.getUniqueId() === e.triggerUid) {
@@ -740,73 +768,101 @@ function processOneLead(e) {
     });
   }
 
-  // Reset caches for fresh read
   for (const key in _settingsCache) delete _settingsCache[key];
   for (const key in _timeApiCache)  delete _timeApiCache[key];
 
-  // Check time window - stop chain if past end time
-  if (!isWithinSendingWindow()) {
-    Logger.log('Outside sending window - stopping chain.');
-    return;
-  }
+  // Refresh the chain lock so startDailyRun knows a chain is alive.
+  markChainRunning();
 
-  // Check pause flag
-  if (getSetting('pauseAllFollowUps').toUpperCase() === 'TRUE') {
-    Logger.log('pauseAllFollowUps is TRUE - stopping chain.');
-    return;
-  }
+  // Work through leads. ONLY A REAL SEND ends this execution.
+  while (true) {
 
-  // Check max sends cap
-  if (hitMaxSendsPerDay()) {
-    Logger.log('maxSendsPerDay reached - stopping chain.');
-    return;
-  }
-
-  // Step 2: Find next due lead
-  const lead = findNextDueLead();
-
-  // Step 3: No lead found → end of chain
-  if (!lead) {
-    Logger.log('All leads processed for today. Chain complete.');
-    Logger.log('processOneLead: chain ended | sendsAtChainStart=' + PropertiesService.getScriptProperties().getProperty('sendsAtChainStart') + ' | sendsNow=' + getSendsToday() + ' | sentThisRun=' + (getSendsToday() - parseInt(PropertiesService.getScriptProperties().getProperty('sendsAtChainStart') || '0')));
-    // Only send daily notification if THIS chain run actually sent at least one email.
-    // We compare sendsToday now vs when the chain started (stored in script properties).
-    const props = PropertiesService.getScriptProperties();
-    const sendsAtChainStart = parseInt(props.getProperty('sendsAtChainStart') || '0');
-    const sendsNow = getSendsToday();
-    const sentThisRun = sendsNow - sendsAtChainStart;
-    if (sentThisRun > 0 && (getSetting('notificationFrequency') || 'daily').toLowerCase() === 'daily') {
-      Logger.log('Chain complete: ' + sentThisRun + ' email(s) sent this run - sending notification.');
-      sendNotificationEmail();
-    } else {
-      Logger.log('Chain complete: 0 emails sent this run (total today: ' + sendsNow + ') - skipping notification.');
+    if (!isWithinSendingWindow()) {
+      Logger.log('Outside sending window - stopping chain. (' + skipped + ' skipped this execution)');
+      clearChainLock();
+      return;
     }
-    return;
-  }
+    if (getSetting('pauseAllFollowUps').toUpperCase() === 'TRUE') {
+      Logger.log('pauseAllFollowUps is TRUE - stopping chain.');
+      clearChainLock();
+      return;
+    }
+    if (hitMaxSendsPerDay()) {
+      Logger.log('maxSendsPerDay reached - stopping chain.');
+      clearChainLock();
+      return;
+    }
+    if (PropertiesService.getScriptProperties().getProperty('quotaStopDate') === todayStr()) {
+      Logger.log('Gmail quota was hit earlier today - chain stays stopped.');
+      clearChainLock();
+      return;
+    }
 
-  // Step 4: Process this lead
-  Logger.log('Processing lead: ' + lead.leadEmail + ' (row ' + lead.sheetRow + ')');
-  try {
-    processSingleLead(lead);
-  } catch (e) {
-    // Uncaught exception inside processSingleLead - log it and notify but keep chain alive
-    Logger.log('processSingleLead UNCAUGHT ERROR for ' + lead.leadEmail + ': ' + e.message);
-    const notifEmail = getSetting('notificationEmail');
-    if (notifEmail) {
-      try {
-        MailApp.sendEmail({
-          to: notifEmail,
-          subject: 'Follow-Up System - unexpected error, chain continuing',
-          body: 'An unexpected error occurred processing lead: ' + lead.leadEmail +
-            '\nRow: ' + lead.sheetRow + '\nError: ' + e.message +
-            '\n\nThe chain is continuing to the next lead. Check this lead manually.'
-        });
-      } catch (ne) { Logger.log('Could not send error notification: ' + ne.message); }
+    const lead = findNextDueLead();
+
+    if (!lead) {
+      const props             = PropertiesService.getScriptProperties();
+      const sendsAtChainStart = parseInt(props.getProperty('sendsAtChainStart') || '0');
+      const sendsNow          = getSendsToday();
+      const sentThisRun       = sendsNow - sendsAtChainStart;
+      Logger.log('All leads processed for today. Chain complete. (' + skipped + ' skipped this execution)');
+      Logger.log('processOneLead: chain ended | sendsAtChainStart=' + sendsAtChainStart + ' | sendsNow=' + sendsNow + ' | sentThisRun=' + sentThisRun);
+      if (sentThisRun > 0 && (getSetting('notificationFrequency') || 'daily').toLowerCase() === 'daily') {
+        Logger.log('Chain complete: ' + sentThisRun + ' email(s) sent this run - sending notification.');
+        sendNotificationEmail();
+      } else {
+        Logger.log('Chain complete: 0 emails sent this run (total today: ' + sendsNow + ') - skipping notification.');
+      }
+      clearChainLock();
+      return;
+    }
+    // If the same lead comes back, its status write failed. Park it so the
+    // loop below cannot spin on one lead forever.
+    if (lead.threadId && seen[lead.threadId]) {
+      Logger.log('processOneLead: ' + lead.leadEmail + ' came back a second time - status write must have failed. Parking it.');
+      parkLead(lead.threadId, 'status write failed - parked to break loop');
+      continue;
+    }
+    if (lead.threadId) seen[lead.threadId] = true;
+
+    Logger.log('Processing lead: ' + lead.leadEmail + ' (row ' + lead.sheetRow + ')');
+    let sent = false;
+    try {
+      sent = processSingleLead(lead);
+    } catch (err) {
+      Logger.log('processSingleLead UNCAUGHT ERROR for ' + lead.leadEmail + ': ' + err.message);
+      parkLead(lead.threadId, 'uncaught error: ' + err.message);
+      const notifEmail = getSetting('notificationEmail');
+      if (notifEmail) {
+        try {
+          MailApp.sendEmail({
+            to: notifEmail,
+            subject: 'Follow-Up System - unexpected error, chain continuing',
+            body: 'An unexpected error occurred processing lead: ' + lead.leadEmail +
+              '\nRow: ' + lead.sheetRow + '\nError: ' + err.message +
+              '\n\nThat lead has been skipped for today. The chain is continuing.'
+          });
+        } catch (ne) { Logger.log('Could not send error notification: ' + ne.message); }
+      }
+      sent = false;
+    }
+
+    // An email actually went out -> apply the normal 4-8 min spam pacing.
+    if (sent) {
+      Logger.log('processOneLead: sent to ' + lead.leadEmail + ' | ' + skipped + ' lead(s) skipped for free in this execution');
+      scheduleNextProcessOneLead();
+      return;
+    }
+
+    // Nothing was emailed -> move straight to the next lead, no delay.
+    skipped++;
+
+    if (Date.now() - runStart > MAX_RUN_MS) {
+      Logger.log('processOneLead: ' + skipped + ' skips took ' + Math.round((Date.now() - runStart) / 1000) + 's - continuing in a fresh execution.');
+      scheduleContinueSoon();
+      return;
     }
   }
-
-  // Step 5: Schedule the next trigger in the chain
-  scheduleNextProcessOneLead();
 }
 
 /**
@@ -914,10 +970,18 @@ function scheduleNextProcessOneLead() {
   const delayMs = Math.floor(Math.random() * (maxMin - minMin + 1) + minMin) * 60 * 1000;
   const delayMinutes = Math.round(delayMs / 60000);
 
-  ScriptApp.newTrigger('processOneLead')
-    .timeBased()
-    .after(delayMs)
-    .create();
+  try {
+    ScriptApp.newTrigger('processOneLead')
+      .timeBased()
+      .after(delayMs)
+      .create();
+  } catch (e) {
+    // Nearly always the 20-triggers-per-script limit. Without this the chain
+    // would just stop, with nothing anywhere explaining why.
+    Logger.log('scheduleNextProcessOneLead: FAILED to create trigger - ' + e.message);
+    notifyTriggerFailure(e);
+    return;
+  }
 
   Logger.log('scheduleNextProcessOneLead: delayMs=' + delayMs + ' | delayMinutes=' + delayMinutes + ' | minMin=' + minMin + ' | maxMin=' + maxMin);
   Logger.log('scheduleNextProcessOneLead: trigger will fire at ~' + new Date(Date.now() + delayMs).toISOString());
@@ -957,6 +1021,7 @@ function findNextDueLead() {
   const headers  = activeSheet.getRange(1, 1, 1, lastCol).getValues()[0];
   const today    = todayStr();
   const c        = CONFIG.cols;
+  const parked   = getParkedLeads(); // leads already handled today - never pick again
 
   Logger.log('findNextDueLead: scanning ' + data.length + ' rows in ActiveFollowUps, today=' + today);
 
@@ -970,34 +1035,22 @@ function findNextDueLead() {
     }
     if (status !== 'Active') continue;
 
-    let nextSendDate = '';
-    const nextRaw = row[c.nextSendDate - 1];
-    if (nextRaw instanceof Date) {
-      // Convert the Date object to YYYY-MM-DD using plain JS (no tz shift needed - already a date value)
-      const d    = nextRaw;
-      const yyyy = d.getFullYear();
-      const mm   = String(d.getMonth() + 1).padStart(2, '0');
-      const dd   = String(d.getDate()).padStart(2, '0');
-      nextSendDate = yyyy + '-' + mm + '-' + dd;
-    } else {
-      nextSendDate = String(nextRaw || '').trim();
+    // A lead is parked the instant its email is sent, BEFORE any sheet write,
+    // so this still holds when the sheet write fails. This is what makes a
+    // duplicate send impossible instead of merely unlikely.
+    const rowThreadId = String(row[c.threadId - 1]).trim();
+    if (rowThreadId && parked[rowThreadId]) {
+      Logger.log('findNextDueLead: row ' + (i+2) + ' skipped - parked today (' + parked[rowThreadId] + ')');
+      continue;
     }
+
+    const nextSendDate = sheetDateToStr(row[c.nextSendDate - 1]);
     if (!nextSendDate || !dateIsOnOrBefore(nextSendDate, today)) {
       Logger.log('findNextDueLead: row ' + (i+2) + ' skipped - nextSendDate=' + nextSendDate + ' is in the future');
       continue;
     }
 
-    let lastSentDate = '';
-    const lastRaw = row[c.lastSentDate - 1];
-    if (lastRaw instanceof Date) {
-      const d    = lastRaw;
-      const yyyy = d.getFullYear();
-      const mm   = String(d.getMonth() + 1).padStart(2, '0');
-      const dd   = String(d.getDate()).padStart(2, '0');
-      lastSentDate = yyyy + '-' + mm + '-' + dd;
-    } else {
-      lastSentDate = String(lastRaw || '').trim();
-    }
+    const lastSentDate = sheetDateToStr(row[c.lastSentDate - 1]);
     if (lastSentDate === today) {
       Logger.log('findNextDueLead: row ' + (i+2) + ' skipped - already sent today (' + lastSentDate + ')');
       continue; // already processed today
@@ -1047,29 +1100,71 @@ function processSingleLead(lead) {
 
   Logger.log('processSingleLead START: email=' + leadEmail + ' | seq=' + sequenceName + ' | step=' + sequenceStep + '/' + totalSteps + ' | row=' + sheetRow);
 
+  // Row numbers go stale the moment someone ticks an Enroll box - enrollLead
+  // does insertRowBefore(2), which slides every row down by one. The row number
+  // findNextDueLead handed us can therefore point at a DIFFERENT lead by the
+  // time we write. So we never trust it: we re-confirm by threadId first.
+  let cachedRow = sheetRow;
+  function currentRow() {
+    // Fast path: the cached row still holds this lead's threadId (one cell read).
+    try {
+      if (String(activeSheet.getRange(cachedRow, c.threadId).getValue()).trim() === String(threadId).trim()) {
+        return cachedRow;
+      }
+    } catch (e) {}
+    // Rows shifted underneath us - find this lead again by threadId.
+    const lastRow = activeSheet.getLastRow();
+    if (lastRow >= 2) {
+      const ids = activeSheet.getRange(2, c.threadId, lastRow - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) {
+        if (String(ids[i][0]).trim() === String(threadId).trim()) {
+          cachedRow = i + 2;
+          Logger.log(leadEmail + ': rows shifted - lead is now on row ' + cachedRow);
+          return cachedRow;
+        }
+      }
+    }
+    throw new Error('lead row for threadId ' + threadId + ' no longer exists in ActiveFollowUps');
+  }
+
   // Helper: write a single cell — throws on failure so callers can catch it
   function writeCell(col, value) {
     try {
-      activeSheet.getRange(sheetRow, col).setValue(value);
+      activeSheet.getRange(currentRow(), col).setValue(value);
     } catch (e) {
       throw new Error('writeCell col=' + col + ' value=' + value + ': ' + e.message);
     }
   }
 
-  // Helper: append to notes (never overwrite)
-  function appendNote(text) {
-    const existing = activeSheet.getRange(sheetRow, c.notes).getValue();
-    const updated  = existing ? existing + '\n' + text : text;
-    writeCell(c.notes, updated);
+  // Helper: write the status column, and if that write fails, park the lead.
+  // The status column is what stops a lead being picked again. If we cannot
+  // write it, the lead stays Active and due and would be handed back forever.
+  function setStatusSafe(newStatus) {
+    try {
+      writeCell(c.status, newStatus);
+    } catch (err) {
+      Logger.log(leadEmail + ': could not write status "' + newStatus + '" - parking lead. ' + err.message);
+      parkLead(threadId, 'status write failed (' + newStatus + ')');
+    }
   }
 
+  // Helper: append to notes (never overwrite). Never throws.
+  function appendNote(text) {
+    try {
+      const existing = activeSheet.getRange(currentRow(), c.notes).getValue();
+      const updated  = existing ? existing + '\n' + text : text;
+      writeCell(c.notes, updated);
+    } catch (err) {
+      Logger.log(leadEmail + ': could not append note - ' + err.message);
+    }
+  }
   // ── Step 3: Fetch the Gmail thread ────────────────────────
   let thread;
   try {
     thread = GmailApp.getThreadById(threadId);
   } catch (e) {
     Logger.log('Thread fetch error for ' + leadEmail + ': ' + e.message);
-    writeCell(c.status, 'Error');
+    setStatusSafe('Error');
     appendNote('[' + today + '] Thread fetch error: ' + e.message);
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Failed');
     return;
@@ -1077,7 +1172,7 @@ function processSingleLead(lead) {
 
   if (!thread) {
     Logger.log('Thread not found for ' + leadEmail);
-    writeCell(c.status, 'Error');
+    setStatusSafe('Error');
     appendNote('[' + today + '] Thread not found');
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Failed');
     return;
@@ -1089,7 +1184,7 @@ function processSingleLead(lead) {
     messages = thread.getMessages();
   } catch (e) {
     Logger.log('Error reading messages for ' + leadEmail + ': ' + e.message);
-    writeCell(c.status, 'Error');
+    setStatusSafe('Error');
     appendNote('[' + today + '] Error reading messages: ' + e.message);
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Failed');
     return;
@@ -1098,38 +1193,72 @@ function processSingleLead(lead) {
   const latestMessage = messages[messages.length - 1];
   const latestSender  = latestMessage.getFrom();
 
-  // ── Step 5: Reply detection (if enabled in Settings) ──────
-  const replyCheckEnabled = getSetting('replyCheckBeforeSend').toUpperCase() !== 'FALSE';
-  Logger.log('processSingleLead: replyCheckEnabled=' + replyCheckEnabled + ' | latestSender=' + latestSender + ' | isSendingAccount=' + isSendingAccount(latestSender));
-  if (replyCheckEnabled && !isSendingAccount(latestSender)) {
-    let replyBody = '';
-    try { replyBody = stripHtml(latestMessage.getBody()); }
-    catch (e) { replyBody = latestMessage.getPlainBody() || ''; }
-    const snippet = replyBody.substring(0, 120);
-    Logger.log(leadEmail + ': lead replied - setting Replied');
-    writeCell(c.status, 'Replied');
-    writeCell(c.lastReplySnippet, snippet);
-    logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Skipped - Lead replied');
+  // ── Step 5: Read the latest message ONCE, then classify it ──────
+  let latestBody = '';
+  try { latestBody = stripHtml(latestMessage.getBody()); }
+  catch (e) { latestBody = latestMessage.getPlainBody() || ''; }
+  const bodyLower = latestBody.toLowerCase();
+  const fromUs    = isSendingAccount(latestSender);
+  const snippet   = latestBody.substring(0, 120);
+
+  // Bounce is checked first - it is the more specific case, and some bounce
+  // notices also contain wording that would match an OOO keyword.
+  const isBounce = !fromUs && CONFIG.bounceKeywords.some(kw => bodyLower.includes(kw));
+  const oooDetected = !fromUs && !isBounce &&
+                      CONFIG.oooKeywords.some(kw => bodyLower.includes(kw));
+  Logger.log('processSingleLead: fromUs=' + fromUs + ' | isBounce=' + isBounce +
+             ' | oooDetected=' + oooDetected +
+             ' | latestSender=' + latestSender + ' | bodyPreview=' + bodyLower.substring(0, 80));
+
+  // ── Hard bounce: the address is dead. Stop permanently. ───
+  // Deliberately NOT marked OOO, so oooAutoResume can never bring it back and
+  // start mailing a dead address on a loop.
+  if (isBounce) {
+    Logger.log(leadEmail + ': BOUNCE detected from ' + latestSender);
+    setStatusSafe('Bounced');
+    appendNote('[' + today + '] Bounced - address appears dead. From: ' +
+               String(latestSender).replace(/[\r\n]+/g, ' '));
+    try { writeCell(c.lastReplySnippet, snippet); }
+    catch (e) { Logger.log(leadEmail + ': could not write bounce snippet - ' + e.message); }
+    logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Skipped - Bounced');
     SpreadsheetApp.flush();
-    return;
+    return false;
   }
 
-  Logger.log('processSingleLead: reply check passed for ' + leadEmail + ' - latest sender: ' + latestSender);
-
-  // ── Step 6: OOO / bounce detection ────────────────────────
-  let latestBody = '';
-  try { latestBody = stripHtml(latestMessage.getBody()).toLowerCase(); }
-  catch (e) { latestBody = (latestMessage.getPlainBody() || '').toLowerCase(); }
-
-  const oooDetected = CONFIG.oooKeywords.some(kw => latestBody.includes(kw));
-  Logger.log('processSingleLead: oooDetected=' + oooDetected + ' | bodyPreview=' + latestBody.substring(0, 80));
+  // ── Step 5a: OOO / bounce is checked FIRST ────────────────
+  // An auto-reply or a mailer-daemon bounce is not from our account, so the
+  // reply check below would file it as a genuine "Replied" and kill the
+  // sequence permanently. Checking here catches it instead. This runs even
+  // when replyCheckBeforeSend is FALSE - there is no point mailing a dead
+  // address either way.
   if (oooDetected) {
-    Logger.log(leadEmail + ': OOO/bounce detected');
-    writeCell(c.status, 'OOO');
+    Logger.log(leadEmail + ': OOO/bounce detected from ' + latestSender);
+    setStatusSafe('OOO');
+    // This note carries the date checkOooAutoResume parses to decide when to
+    // put the lead back to Active. Without it, auto-resume has nothing to read.
+    appendNote('[' + today + '] OOO/bounce detected - paused. From: ' +
+               String(latestSender).replace(/[\r\n]+/g, ' '));
+    try { writeCell(c.lastReplySnippet, snippet); }
+    catch (e) { Logger.log(leadEmail + ': could not write OOO snippet - ' + e.message); }
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Skipped - OOO/bounce detected');
     SpreadsheetApp.flush();
-    return;
+    return false;
   }
+
+  // ── Step 5b: Genuine reply detection (if enabled in Settings) ──
+  const replyCheckEnabled = getSetting('replyCheckBeforeSend').toUpperCase() !== 'FALSE';
+  Logger.log('processSingleLead: replyCheckEnabled=' + replyCheckEnabled);
+  if (replyCheckEnabled && !fromUs) {
+    Logger.log(leadEmail + ': lead replied - setting Replied');
+    setStatusSafe('Replied');
+    try { writeCell(c.lastReplySnippet, snippet); }
+    catch (e) { Logger.log(leadEmail + ': could not write reply snippet - ' + e.message); }
+    logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Skipped - Lead replied');
+    SpreadsheetApp.flush();
+    return false;
+  }
+
+  Logger.log('processSingleLead: reply/OOO checks passed for ' + leadEmail);
 
   // ── Step 7: Determine step to send ────────────────────────
   const currentStep = sequenceStep; // 0-indexed
@@ -1138,7 +1267,7 @@ function processSingleLead(lead) {
   Logger.log('processSingleLead: currentStep=' + currentStep + ' | totalSteps=' + totalSteps + ' | hitsCap=' + (totalSteps > 0 && currentStep >= totalSteps));
   if (totalSteps > 0 && currentStep >= totalSteps) {
     Logger.log(leadEmail + ': Done - max steps reached');
-    writeCell(c.status, 'Done');
+    setStatusSafe('Done');
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Skipped - Max steps reached');
     SpreadsheetApp.flush();
     return;
@@ -1150,7 +1279,7 @@ function processSingleLead(lead) {
     stepData = getSequenceStep(sequenceName, currentStep + 1);
   } catch (e) {
     Logger.log(leadEmail + ': Sequence read error - ' + e.message);
-    writeCell(c.status, 'Error');
+    setStatusSafe('Error');
     appendNote('[' + today + '] Sequence read error: ' + e.message);
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Failed');
     SpreadsheetApp.flush();
@@ -1159,7 +1288,7 @@ function processSingleLead(lead) {
   Logger.log('processSingleLead: stepData found=' + !!stepData + ' | awaitDays=' + (stepData ? stepData.awaitDays : 'N/A') + ' | msgLength=' + (stepData ? stepData.message.length : 0));
   if (!stepData || !stepData.message) {
     Logger.log(leadEmail + ': Done - sequence exhausted at step ' + currentStep);
-    writeCell(c.status, 'Done');
+    setStatusSafe('Done');
     logToSendLog(leadEmail, leadName, sequenceName, sequenceStep, fromAccount, '', threadId, 'Skipped - Sequence exhausted');
     SpreadsheetApp.flush();
     return;
@@ -1200,7 +1329,7 @@ function processSingleLead(lead) {
       e.message.toLowerCase().includes('rate') ||
       e.message.toLowerCase().includes('limit')
     );
-    writeCell(c.status, 'Error');
+    setStatusSafe('Error');
     appendNote('[' + today + '] Send failed at step ' + currentStep + ': ' + e.message);
     logToSendLog(leadEmail, leadName, sequenceName, currentStep, fromAccount,
       textPart.substring(0, 100), threadId, 'Failed');
@@ -1208,6 +1337,10 @@ function processSingleLead(lead) {
     // If quota hit, notify immediately and stop the chain
     if (isQuota) {
       Logger.log('QUOTA HIT - stopping chain and sending notification');
+      // Tell the chain to stay stopped for the rest of today. Without this the
+      // loop races through every remaining lead, fails each on quota, marks
+      // them all Error and emails a warning for every one.
+      PropertiesService.getScriptProperties().setProperty('quotaStopDate', today);
       const notifEmail = getSetting('notificationEmail');
       if (notifEmail) {
         try {
@@ -1233,6 +1366,25 @@ function processSingleLead(lead) {
   //   sequenceStep LAST   - if we crash between send and this write, lastSentDate
   //                         already guards against a re-send today; sequenceStep being
   //                         stale is recoverable manually; a double-send is not.
+  // ══════════════════════════════════════════════════════════════════
+  // THE EMAIL IS OUT THE DOOR. Everything below is bookkeeping.
+  // Park the lead FIRST, before touching the sheet. parkLead writes to Script
+  // Properties, which is completely independent of the spreadsheet. Once this
+  // line runs, findNextDueLead will refuse to hand this lead back today no
+  // matter what happens to any sheet write below.
+  // ══════════════════════════════════════════════════════════════════
+  parkLead(threadId, 'sent step ' + currentStep + ' on ' + today);
+
+  // Count the send straight away - the email really did go out, so it must
+  // count against the daily cap even if the sheet writes below fail.
+  try {
+    incrementSendsToday();
+  } catch (ce) {
+    // Never let a counter write throw - the email is already sent, and an
+    // escape here would make the chain treat this as a skip and drop the delay.
+    Logger.log(leadEmail + ': could not increment send counter - ' + ce.message);
+  }
+
   const newStep     = currentStep + 1;
   const newSendDate = addDays(today, stepData.awaitDays);
 
@@ -1249,14 +1401,13 @@ function processSingleLead(lead) {
       'Manually set sequenceStep=' + newStep + ' lastSentDate=' + today + ' nextSendDate=' + newSendDate);
     logToSendLog(leadEmail, leadName, sequenceName, currentStep, fromAccount,
       textPart.substring(0, 100), threadId, 'Sent-WriteError');
+    setStatusSafe('Error');
     SpreadsheetApp.flush();
-    return;
+    return true; // the email DID go out - the chain must still pace the next one
   }
 
   logToSendLog(leadEmail, leadName, sequenceName, currentStep, fromAccount,
     textPart.substring(0, 100), threadId, 'Sent');
-
-  incrementSendsToday();
 
   Logger.log('processSingleLead: SEND SUCCESS | email=' + leadEmail + ' | step=' + currentStep + ' → ' + newStep + ' | nextSendDate=' + newSendDate + ' | sendsToday=' + getSendsToday());
 
@@ -1280,13 +1431,13 @@ function processSingleLead(lead) {
   }
 
   if (isDoneNow) {
-    writeCell(c.status, 'Done');
+    setStatusSafe('Done');
     Logger.log(leadEmail + ': status set to Done');
   }
 
   SpreadsheetApp.flush();
+  return true;
 }
-
 // ============================================================
 // SECTION: OOO AUTO-RESUME
 // ============================================================
@@ -1321,15 +1472,7 @@ function checkOooAutoResume() {
       oooSetDate = oooNoteMatch[1];
     } else {
       // Fallback: use lastSentDate
-      const lastRaw = row[c.lastSentDate - 1];
-      if (lastRaw instanceof Date) {
-        const d  = lastRaw;
-        oooSetDate = d.getFullYear() + '-' +
-          String(d.getMonth() + 1).padStart(2, '0') + '-' +
-          String(d.getDate()).padStart(2, '0');
-      } else {
-        oooSetDate = String(lastRaw || '').trim();
-      }
+      oooSetDate = sheetDateToStr(row[c.lastSentDate - 1]);
     }
 
     if (!oooSetDate) return; // can't determine when OOO was set
@@ -1376,8 +1519,19 @@ function sendTestEmail() {
     return;
   }
 
+  const ui = SpreadsheetApp.getUi();
+
+  // Ask WHICH LEAD to pull variables from
+  const leadResponse = ui.prompt(
+    'Test Email - Choose Lead',
+    'Enter the lead\'s EMAIL ADDRESS, or their ROW NUMBER from ActiveFollowUps.\n\n' +
+    'Leave blank to use the first lead that has a sequenceName.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (leadResponse.getSelectedButton() !== ui.Button.OK) return;
+  const leadQuery = leadResponse.getResponseText().trim();
+
   // Ask which step number to preview
-  const ui       = SpreadsheetApp.getUi();
   const response = ui.prompt(
     'Test Email - Choose Step',
     'Enter the step number to preview (1 = first message, 2 = second, etc):',
@@ -1391,8 +1545,6 @@ function sendTestEmail() {
     return;
   }
 
-  // Grab the first row in ActiveFollowUps that has a sequenceName - no status check,
-  // no sequenceStep check - just use it as the variable source for the preview.
   const activeSheet = getSheet(CONFIG.sheets.activeFollowUps);
   const lastRow     = activeSheet.getLastRow();
   if (lastRow < 2) {
@@ -1407,26 +1559,47 @@ function sendTestEmail() {
 
   let lead = null;
   for (let i = 0; i < data.length; i++) {
-    const seqName = String(data[i][c.sequenceName - 1]).trim();
-    if (!seqName) continue; // skip rows with no sequence set
+    const seqName  = String(data[i][c.sequenceName - 1]).trim();
+    const rowEmail = String(data[i][c.leadEmail - 1]).trim();
+    const rowNum   = i + 2;
+
+    // Blank query -> first lead with a sequence. Contains @ -> match on email.
+    // Otherwise -> match on row number.
+    let matches;
+    if (!leadQuery) {
+      matches = !!seqName;
+    } else if (leadQuery.indexOf('@') !== -1) {
+      matches = rowEmail.toLowerCase() === leadQuery.toLowerCase();
+    } else {
+      matches = String(rowNum) === leadQuery;
+    }
+    if (!matches) continue;
+
+    if (!seqName) {
+      ui.alert('That lead (row ' + rowNum + ', ' + rowEmail + ') has no sequenceName set.\n\n' +
+               'Fill in column E first, then try again.');
+      return;
+    }
+
     const customVars = {};
     for (let col = c.notes; col < headers.length; col++) {
       const h = String(headers[col]).trim();
       if (h) customVars[h] = String(data[i][col] || '').trim();
     }
     lead = {
-      leadName:     String(data[i][c.leadName     - 1]),
-      leadEmail:    String(data[i][c.leadEmail    - 1]),
+      leadName:     String(data[i][c.leadName  - 1]),
+      leadEmail:    String(data[i][c.leadEmail - 1]),
       sequenceName: seqName,
+      sheetRow:     rowNum,
       customVars:   customVars,
     };
     break;
   }
 
   if (!lead) {
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      'No lead with a sequenceName found in ActiveFollowUps.', 'Test Send', 6
-    );
+    ui.alert(leadQuery
+      ? 'No lead found matching "' + leadQuery + '" in ActiveFollowUps.'
+      : 'No lead with a sequenceName found in ActiveFollowUps.');
     return;
   }
 
@@ -1459,17 +1632,14 @@ function sendTestEmail() {
     }
   }
 
-  // Yellow banner so it is obvious this is a test
-  const banner =
-    '<div style="background:#fff3cd;border:1px solid #ffc107;padding:10px 14px;' +
-    'margin-bottom:16px;font-family:sans-serif;font-size:13px;border-radius:4px">' +
-    '<b>TEST PREVIEW - Step ' + stepToPreview + '</b><br>' +
-    'Sequence: <b>' + lead.sequenceName + '</b><br>' +
-    'Variables pulled from lead: <b>' + lead.leadEmail + '</b> (' + lead.leadName + ')<br>' +
-    'awaitDays: ' + stepData.awaitDays + ' | image: ' + (imgUrl ? (imgSize + ' - ' + imgUrl.substring(0, 60) + '...') : 'none') +
-    '</div>';
+  // No banner - the body is now byte-for-byte what the lead would receive.
+  // The [TEST] subject prefix is the only marker, so read the subject line.
+  Logger.log('sendTestEmail: step ' + stepToPreview + ' | sequence ' + lead.sequenceName +
+             ' | lead ' + lead.leadEmail + ' (row ' + lead.sheetRow + ')' +
+             ' | awaitDays ' + stepData.awaitDays +
+             ' | image ' + (imgUrl ? imgSize : 'none'));
 
-  const htmlBody  = banner + textPart.replace(/\n/g, '<br>');
+  const htmlBody  = textPart.replace(/\n/g, '<br>');
   let   finalHtml = htmlBody;
   const subject   = '[TEST] Step ' + stepToPreview + ' | ' + lead.sequenceName + ' | ' + lead.leadEmail;
 
@@ -1589,6 +1759,7 @@ function sendNotificationEmail() {
   let totalReplied = 0;
   let totalDone    = 0;
   let totalActive  = 0;
+  let totalBounced = 0;
   let totalErrors  = 0;
   const errorLeads = []; // { email, notes }
 
@@ -1602,6 +1773,7 @@ function sendNotificationEmail() {
       if (status === 'Replied') totalReplied++;
       if (status === 'Done')    totalDone++;
       if (status === 'Active')  totalActive++;
+      if (status === 'Bounced') totalBounced++;
       if (status === 'Error') {
         totalErrors++;
         errorLeads.push({
@@ -1631,6 +1803,7 @@ function sendNotificationEmail() {
   body += row('Send failures', totalFailed);
   body += row('Leads that replied', totalReplied);
   body += row('Sequences completed (Done)', totalDone);
+  body += row('Dead addresses (bounced)', totalBounced);
   body += row('Leads with errors', totalErrors);
   body += row('Active leads still in progress', totalActive);
   body += '</table>';
@@ -1736,7 +1909,9 @@ function scanInboxForEmail() {
   const query = 'from:' + email + ' OR to:' + email;
   let threads = [];
   try {
-    threads = GmailApp.search(query, 0, 500);
+    // Every thread costs a Gmail round trip below, so 500 is what makes this
+    // time out. 50 is far more than you need to pick the right thread.
+    threads = GmailApp.search(query, 0, 50);
   } catch (e) {
     Logger.log('Gmail search failed: ' + e.message);
     return;
@@ -1755,11 +1930,10 @@ function scanInboxForEmail() {
   const sendingAccounts    = getSendingAccounts();
   const sc                 = CONFIG.scannerCols;
 
-  // Build all rows as a batch - one array per thread
-  // We write each row individually because we also need to set checkbox validation on col G
-  let writeRow = row;
-
-  threads.forEach((thread, threadIndex) => {
+  // Build every row in memory first, then write the whole block in ONE call.
+  // The old version made 7 separate sheet calls per thread - 350 round trips
+  // for 50 threads, which blew the 6-minute execution limit.
+  const rows = threads.map(thread => {
     const msgs = thread.getMessages();
 
     // Determine fromAccount: first message whose from/to matches a sending account
@@ -1773,37 +1947,34 @@ function scanInboxForEmail() {
       if (matchedTo) { fromAccount = matchedTo; break; }
     }
 
-    // Last reply date as YYYY-MM-DD - use plain JS formatting to avoid tz dependency
-    const lastDate = thread.getLastMessageDate();
-    const yyyy     = lastDate.getFullYear();
-    const mm       = String(lastDate.getMonth() + 1).padStart(2, '0');
-    const dd       = String(lastDate.getDate()).padStart(2, '0');
-    const lastDateStr = yyyy + '-' + mm + '-' + dd;
+    const lastDate    = thread.getLastMessageDate();
+    const lastDateStr = lastDate.getFullYear() + '-' +
+      String(lastDate.getMonth() + 1).padStart(2, '0') + '-' +
+      String(lastDate.getDate()).padStart(2, '0');
 
-    // Body: plain text of the FIRST message in the thread, truncated to 500 chars.
-    // The first message is the original cold email - most useful for identifying the thread.
+    // Body: plain text of the FIRST message (the original cold email), 500 chars.
     let bodyPreview = '';
     try {
-      const firstMsg = msgs[0];
-      const rawBody  = firstMsg.getPlainBody() || stripHtml(firstMsg.getBody());
-      bodyPreview    = rawBody.trim().replace(/\s+/g, ' ').substring(0, 500);
+      const rawBody = msgs[0].getPlainBody() || stripHtml(msgs[0].getBody());
+      bodyPreview   = rawBody.trim().replace(/\s+/g, ' ').substring(0, 500);
     } catch (e) {
       bodyPreview = '[Could not read body: ' + e.message + ']';
     }
 
-    // Write all scalar columns in one setValues call for this row
-    sheet.getRange(writeRow, sc.leadEmail,     1, 1).setValue(email);
-    sheet.getRange(writeRow, sc.threadId,      1, 1).setValue(thread.getId());
-    sheet.getRange(writeRow, sc.subject,       1, 1).setValue(thread.getFirstMessageSubject());
-    sheet.getRange(writeRow, sc.fromAccount,   1, 1).setValue(fromAccount);
-    sheet.getRange(writeRow, sc.lastReplyDate, 1, 1).setValue(lastDateStr);
-    sheet.getRange(writeRow, sc.body,          1, 1).setValue(bodyPreview);
-
-    // Enroll column: checkbox (col G = 7)
-    sheet.getRange(writeRow, sc.enroll).insertCheckboxes().setDataValidation(checkboxValidation);
-
-    writeRow++;
+    return [email, thread.getId(), thread.getFirstMessageSubject(),
+            fromAccount, lastDateStr, bodyPreview, false];
   });
+
+  // Make room. The old version wrote straight down from the found row, painting
+  // over any rows already sitting below it. Inserting pushes them down instead,
+  // so nothing already in the sheet is ever destroyed.
+  if (rows.length > 1) sheet.insertRowsAfter(row, rows.length - 1);
+
+  sheet.getRange(row, sc.leadEmail, rows.length, 7).setValues(rows);
+  sheet.getRange(row, sc.enroll, rows.length, 1)
+       .insertCheckboxes()
+       .setDataValidation(checkboxValidation);
+  sheet.getRange(row, sc.body, rows.length, 1).setWrap(true);
 
   SpreadsheetApp.flush();
   SpreadsheetApp.getActiveSpreadsheet().toast(
@@ -1912,9 +2083,40 @@ function _enrollLeadInner(sheet, row) {
   activeSheet.getRange(2, CONFIG.cols.nextSendDate).setNumberFormat('yyyy-MM-dd');
   Logger.log('enrollLead: formatting applied to row 2');
 
-  // Mark InboxScanner row as Enrolled to prevent re-firing
-  sheet.getRange(row, sc.enroll).clearDataValidations().setValue('Enrolled');
-  Logger.log('enrollLead: InboxScanner row ' + row + ' marked as Enrolled');
+  // ── Clean up InboxScanner ──────────────────────────────────
+  // Every thread we found for this lead is now noise: the one that matters is
+  // enrolled and tracked in ActiveFollowUps. Left alone this sheet fills up
+  // fast, since it holds one row per thread per lead. Delete every row for
+  // this email, including the one just ticked.
+  //
+  // Runs only AFTER the ActiveFollowUps insert succeeded above, so a failed
+  // enrollment never destroys the scan results.
+  try {
+    const scanLastRow = sheet.getLastRow();
+    if (scanLastRow >= 2) {
+      const scanEmails = sheet.getRange(2, sc.leadEmail, scanLastRow - 1, 1).getValues();
+      const target = leadEmail.toLowerCase();
+      const hits = [];
+      for (let i = 0; i < scanEmails.length; i++) {
+        if (String(scanEmails[i][0]).trim().toLowerCase() === target) hits.push(i + 2);
+      }
+      // Delete in contiguous runs, bottom-up, so row numbers above stay valid
+      // and 20 threads cost one delete call instead of twenty.
+      let removed = 0;
+      let end = hits.length - 1;
+      while (end >= 0) {
+        let start = end;
+        while (start > 0 && hits[start - 1] === hits[start] - 1) start--;
+        sheet.deleteRows(hits[start], end - start + 1);
+        removed += end - start + 1;
+        end = start - 1;
+      }
+      Logger.log('enrollLead: removed ' + removed + ' InboxScanner row(s) for ' + leadEmail);
+    }
+  } catch (e) {
+    // The lead IS enrolled - cleanup failing is cosmetic, never block on it.
+    Logger.log('enrollLead: InboxScanner cleanup failed (lead is still enrolled) - ' + e.message);
+  }
 
   SpreadsheetApp.flush();
   SpreadsheetApp.getActiveSpreadsheet().toast(
@@ -2306,6 +2508,158 @@ function getActiveLeads() {
  */
 function setCell(sheet, row, col, value) {
   sheet.getRange(row, col).setValue(value);
+}
+
+// ============================================================
+// SECTION: PARKED LEADS (duplicate-send guard)
+// ============================================================
+
+function getParkedLeads() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('parkedLeads');
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    if (!obj || obj.date !== todayStr()) return {}; // stale - new day, start clean
+    return obj.ids || {};
+  } catch (e) {
+    Logger.log('getParkedLeads ERROR: ' + e.message);
+    return {};
+  }
+}
+
+function parkLead(threadId, reason) {
+  if (!threadId) return;
+  try {
+    const ids = getParkedLeads();
+    // Cap the reason - a Script Property value maxes out near 9 KB, and long
+    // error messages across many leads would silently overflow it, which would
+    // take the duplicate-send guard down with it.
+    ids[String(threadId)] = String(reason || 'parked').substring(0, 30);
+    PropertiesService.getScriptProperties()
+      .setProperty('parkedLeads', JSON.stringify({ date: todayStr(), ids: ids }));
+    Logger.log('parkLead: ' + threadId + ' parked for today - ' + (reason || 'parked'));
+  } catch (e) {
+    Logger.log('parkLead ERROR for ' + threadId + ': ' + e.message);
+  }
+}
+
+function cleanUpStuckTriggers() {
+  let removed = 0;
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'processOneLead') {
+      try { ScriptApp.deleteTrigger(t); removed++; }
+      catch (e) { Logger.log('cleanUpStuckTriggers: ' + e.message); }
+    }
+  });
+  // A chain that died from the trigger limit never got to clear its lock, and
+  // that lock would block a restart for 30 min. This button is the "unstick
+  // everything" button, so drop the lock too.
+  clearChainLock();
+
+  const left = ScriptApp.getProjectTriggers().length;
+  const msg  = 'Removed ' + removed + ' stuck processOneLead trigger(s). ' +
+               left + ' trigger(s) remain (Google allows 20).';
+  Logger.log('cleanUpStuckTriggers: ' + msg);
+  try { SpreadsheetApp.getActiveSpreadsheet().toast(msg, 'Trigger Cleanup', 8); } catch (e) {}
+}
+
+function notifyTriggerFailure(err) {
+  let count = '?';
+  try { count = ScriptApp.getProjectTriggers().length; } catch (e) {}
+  const notifEmail = getSetting('notificationEmail');
+  if (!notifEmail) return;
+  try {
+    MailApp.sendEmail({
+      to: notifEmail,
+      subject: 'Follow-Up System - CHAIN STOPPED, could not create trigger',
+      body: 'The follow-up chain could not schedule its next step and has stopped.\n\n' +
+        'Error: ' + err.message + '\n' +
+        'Triggers currently in this project: ' + count + ' (Google allows 20)\n\n' +
+        'If that number is at or near 20, run "Clean up stuck triggers" from the ' +
+        'Follow-Up System menu, then start the chain again.\n\n' +
+        'No leads were lost - unsent leads stay Active and are picked up on the next run.'
+    });
+  } catch (e) { Logger.log('notifyTriggerFailure: could not send email - ' + e.message); }
+}
+
+function scheduleContinueSoon() {
+  try {
+    ScriptApp.newTrigger('processOneLead')
+      .timeBased()
+      .after(60 * 1000)
+      .create();
+    Logger.log('scheduleContinueSoon: processOneLead continues in ~1 min (no email was sent)');
+  } catch (e) {
+    Logger.log('scheduleContinueSoon: FAILED to create trigger - ' + e.message);
+    notifyTriggerFailure(e);
+  }
+}
+
+// ============================================================
+// SECTION: CHAIN LOCK (one chain at a time)
+// ============================================================
+
+// The lock stores the timestamp of the last chain activity. If a chain dies
+// without clearing it, the lock goes stale on its own so it can never block
+// you forever. Normal gap between chain steps is 4-8 min, so 30 is safe.
+const CHAIN_LOCK_KEY      = 'chainRunningSince';
+const CHAIN_LOCK_STALE_MS = 30 * 60 * 1000;
+
+function chainIsRunning() {
+  const raw = PropertiesService.getScriptProperties().getProperty(CHAIN_LOCK_KEY);
+  if (!raw) return false;
+  const age = Date.now() - parseInt(raw, 10);
+  if (isNaN(age) || age > CHAIN_LOCK_STALE_MS) {
+    Logger.log('chainIsRunning: stale lock (' + Math.round(age / 60000) + ' min old) - clearing it');
+    clearChainLock();
+    return false;
+  }
+  return true;
+}
+
+function markChainRunning() {
+  try { PropertiesService.getScriptProperties().setProperty(CHAIN_LOCK_KEY, String(Date.now())); }
+  catch (e) { Logger.log('markChainRunning ERROR: ' + e.message); }
+}
+
+function clearChainLock() {
+  try { PropertiesService.getScriptProperties().deleteProperty(CHAIN_LOCK_KEY); }
+  catch (e) { Logger.log('clearChainLock ERROR: ' + e.message); }
+}
+
+// ============================================================
+// SECTION: DATE HELPERS (one clock, always the configured timezone)
+// ============================================================
+
+/**
+ * Today in YOUR configured timezone, as YYYY-MM-DD.
+ *
+ * Same answer as todayStr() but with no network call, so it is safe inside
+ * onEdit triggers and instant everywhere else. Never use plain new Date()
+ * for a calendar date - that silently uses the Apps Script PROJECT timezone,
+ * which is a different clock from the one the sending engine runs on.
+ */
+function todayInTz() {
+  const tz = getSetting('timezone') || 'UTC';
+  return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+}
+
+/**
+ * Converts a value read out of a sheet cell into YYYY-MM-DD.
+ *
+ * Sheets stores a date you wrote as midnight in the SPREADSHEET's timezone,
+ * so it must be read back in that same timezone. Formatting it with
+ * getFullYear()/getMonth()/getDate() uses the script timezone instead and
+ * shifts the date by a day whenever the two differ.
+ */
+function sheetDateToStr(v) {
+  if (!(v instanceof Date)) return String(v || '').trim();
+  try {
+    const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+    return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  } catch (e) {
+    return Utilities.formatDate(v, getSetting('timezone') || 'UTC', 'yyyy-MM-dd');
+  }
 }
 
 /**
