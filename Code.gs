@@ -247,6 +247,7 @@ function setupSpreadsheet() {
     ['oooAutoResume',              'FALSE'],
     ['oooResumeDays',              '7'],
     ['replyResumeDays',            '7'],
+    ['replyResumeSequence',        ''],
     ['enrollDefaultSequence',      ''],
     ['enrollDefaultTotalSteps',    '0'],
     ['enrollDefaultResumeOnReply', 'FALSE'],
@@ -2818,6 +2819,29 @@ function checkReplyAutoResume() {
   const lastRow     = activeSheet.getLastRow();
   if (lastRow < 2) return;
 
+  // Optional. Moves a resumed lead onto a sequence written for someone who
+  // already answered you. Blank = carry on with the sequence they were in.
+  //
+  // The steps in a cold sequence are written for someone who never replied.
+  // Firing one at a lead who just said "yes, let's talk" reads like you never
+  // opened their message - and the shorter replyResumeDays is, the worse that
+  // lands. This is the fix for that.
+  //
+  // Validated once here rather than per lead: a typo in Settings would
+  // otherwise throw inside processSingleLead and mark every resumed lead
+  // Error. A bad name just falls back to the old behaviour with a warning.
+  let resumeSeq = String(getSetting('replyResumeSequence') || '').trim();
+  if (resumeSeq) {
+    let known = [];
+    try { known = getAllSequenceNames(); } catch (e) { known = []; }
+    if (known.indexOf(resumeSeq) === -1) {
+      Logger.log('checkReplyAutoResume: replyResumeSequence "' + resumeSeq +
+                 '" is not a column in the Sequences sheet - ignoring it. ' +
+                 'Known sequences: ' + known.join(', '));
+      resumeSeq = '';
+    }
+  }
+
   const data  = activeSheet.getRange(2, 1, lastRow - 1, CONFIG.cols.notes).getValues();
   const today = todayStr();
   const c     = CONFIG.cols;
@@ -2843,7 +2867,20 @@ function checkReplyAutoResume() {
     if (today < addDays(repliedOn, resumeDays)) return;   // still inside the quiet period
 
     const sheetRow = i + 2;
-    const step     = Number(row[c.sequenceStep - 1]) || 0;
+    const curSeq   = String(row[c.sequenceName - 1] || '').trim();
+    let   step     = Number(row[c.sequenceStep - 1]) || 0;
+    let   what     = 'continuing at step ' + step;
+
+    // Switch onto the re-engage sequence, but only on the FIRST resume.
+    // Already on it means they replied again partway through it, so carry on
+    // where they stopped - restarting would re-send its step 1 forever.
+    if (resumeSeq && curSeq !== resumeSeq) {
+      activeSheet.getRange(sheetRow, c.sequenceName).setValue(resumeSeq);
+      activeSheet.getRange(sheetRow, c.sequenceStep).setValue(0);
+      step = 0;
+      what = 'moved from "' + curSeq + '" to "' + resumeSeq + '" at step 0';
+    }
+
     activeSheet.getRange(sheetRow, c.status).setValue('Active');
     activeSheet.getRange(sheetRow, c.nextSendDate).setValue(today);
 
@@ -2851,10 +2888,10 @@ function checkReplyAutoResume() {
     // it MUST carry the time, or the lead is flipped straight back to Replied.
     const existing = activeSheet.getRange(sheetRow, c.notes).getValue();
     const note = '[' + nowStampInTz() + '] Resumed from Replied after ' + resumeDays +
-                 ' days of silence - continuing at step ' + step + '.';
+                 ' days of silence - ' + what + '.';
     activeSheet.getRange(sheetRow, c.notes).setValue(existing ? existing + '\n' + note : note);
     Logger.log('Reply auto-resumed: ' + String(row[c.leadEmail - 1]) +
-               ' (replied ' + repliedOn + ', silent ' + resumeDays + ' days, step ' + step + ')');
+               ' (replied ' + repliedOn + ', silent ' + resumeDays + ' days) - ' + what);
   });
 
   SpreadsheetApp.flush();
