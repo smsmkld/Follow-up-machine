@@ -64,7 +64,9 @@ function doPost(e) {
     uiSaveLeadRow:   uiSaveLeadRow,
     uiGetVariables:  uiGetVariables,
     uiPreviewStep:   uiPreviewStep,
-    uiTestSendStep:  uiTestSendStep
+    uiTestSendStep:  uiTestSendStep,
+    uiAddLeadColumn: uiAddLeadColumn,
+    uiRunAction:     uiRunAction
   };
 
   try {
@@ -98,14 +100,13 @@ function doPost(e) {
 // SHARED HELPERS
 // ============================================================
 
-/** Normalises a cell that may hold a Date or a string into YYYY-MM-DD. */
+/**
+ * Normalises a cell that may hold a Date or a string into YYYY-MM-DD.
+ * Delegates to sheetDateToStr in Code.gs, which reads the date back in the
+ * SPREADSHEET's timezone - the same one Sheets used to store it.
+ */
 function _uiDate(v) {
-  if (v instanceof Date) {
-    return v.getFullYear() + '-' +
-           String(v.getMonth() + 1).padStart(2, '0') + '-' +
-           String(v.getDate()).padStart(2, '0');
-  }
-  return String(v || '').trim();
+  return sheetDateToStr(v);
 }
 
 /**
@@ -887,4 +888,80 @@ function uiDeleteSequence(name) {
   SpreadsheetApp.flush();
   Logger.log('uiDeleteSequence: removed "' + name + '"');
   return uiGetSequences();
+}
+
+// ============================================================
+// API - CUSTOM LEAD COLUMNS
+// ============================================================
+
+/**
+ * Adds a new column to ActiveFollowUps. Any header past the notes column
+ * automatically becomes a {{variable}} usable in messages, so this is how you
+ * add a merge field without opening the Sheet.
+ */
+function uiAddLeadColumn(name) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('Enter a column name.');
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error('Use letters, numbers and underscores only, starting with a letter. ' +
+                    'It becomes {{' + name.replace(/[^A-Za-z0-9_]/g, '') + '}} in your messages.');
+  }
+
+  const sheet   = getSheet(CONFIG.sheets.activeFollowUps);
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+  for (let i = 0; i < headers.length; i++) {
+    if (String(headers[i]).trim().toLowerCase() === name.toLowerCase()) {
+      throw new Error('A column called "' + name + '" already exists.');
+    }
+  }
+
+  const col = lastCol + 1;
+  if (col > sheet.getMaxColumns()) sheet.insertColumnsAfter(sheet.getMaxColumns(), 1);
+  sheet.getRange(1, col).setValue(name).setFontWeight('bold');
+  sheet.setColumnWidth(col, 180);
+  SpreadsheetApp.flush();
+
+  Logger.log('uiAddLeadColumn: added "' + name + '" at column ' + col);
+  return { name: name, col: col, token: '{{' + name + '}}' };
+}
+
+/**
+ * Runs one of the maintenance actions by name. An explicit allow-list, so the
+ * remote endpoint can never be talked into calling something arbitrary.
+ */
+function uiRunAction(action) {
+  switch (String(action)) {
+    case 'startDailyRun':
+      startDailyRun();
+      return 'Chain started. Watch the Leads tab in a few minutes.';
+
+    case 'manualProcessOneLead':
+      processOneLead(null);
+      return 'Processed one lead. Check the Log tab.';
+
+    case 'createTriggers':
+      createTriggers();
+      return 'Triggers recreated: 8am daily, Monday notification, enroll watcher.';
+
+    case 'cleanUpStuckTriggers':
+      cleanUpStuckTriggers();
+      return 'Stuck triggers cleared and the chain lock released.';
+
+    case 'sendNotificationEmail':
+      sendNotificationEmail();
+      return 'Summary email sent to your notificationEmail.';
+
+    case 'clearParked':
+      PropertiesService.getScriptProperties().deleteProperty('parkedLeads');
+      return 'Parked list cleared - today\'s already-sent guard is reset.';
+
+    case 'clearQuotaStop':
+      PropertiesService.getScriptProperties().deleteProperty('quotaStopDate');
+      return 'Quota stop cleared. The chain can run again today.';
+
+    default:
+      throw new Error('Unknown action: ' + action);
+  }
 }

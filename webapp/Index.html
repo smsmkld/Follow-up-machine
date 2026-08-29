@@ -30,7 +30,7 @@
   --txt:#fafafa; --dim:#9a9aa4; --faint:#5f5f6b;
   --blue:#5b9dff; --green:#3ddc97; --amber:#ffc043; --red:#ff5d52;
   --purple:#b18cff; --gray:#71717f;
-  --tabh:60px;
+  --navw:70px;
   --r:14px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -38,7 +38,8 @@ html{-webkit-text-size-adjust:100%}
 body{
   margin:0;background:var(--bg);color:var(--txt);min-height:100vh;
   font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  padding-bottom:calc(var(--tabh) + env(safe-area-inset-bottom,0px));
+  padding-left:calc(var(--navw) + env(safe-area-inset-left,0px));
+  padding-bottom:env(safe-area-inset-bottom,0px);
   -webkit-font-smoothing:antialiased;
 }
 ::-webkit-scrollbar{width:0;height:0}
@@ -185,23 +186,32 @@ label{display:block;font-size:10.5px;letter-spacing:.09em;text-transform:upperca
 
 /* ── tab bar ──────────────────────────────────── */
 nav{
-  position:fixed;left:0;right:0;bottom:0;z-index:30;height:var(--tabh);
+  position:fixed;left:0;top:0;bottom:0;z-index:40;
+  width:calc(var(--navw) + env(safe-area-inset-left,0px));
+  padding-left:env(safe-area-inset-left,0px);
   background:rgba(8,8,10,.97);backdrop-filter:saturate(180%) blur(14px);
-  border-top:1px solid var(--line);display:flex;
-  padding-bottom:env(safe-area-inset-bottom,0px);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:stretch;
+  padding-top:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+  gap:2px;overflow-y:auto;
 }
 nav button{
-  flex:1;background:none;border:none;color:var(--faint);cursor:pointer;
+  background:none;border:none;color:var(--faint);cursor:pointer;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
-  font-size:9px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
-  padding:0;transition:color .13s;
+  font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  padding:11px 2px;margin:0 7px;border-radius:11px;
+  transition:color .13s,background .13s;position:relative;
 }
-nav button i{font-size:17px;transition:transform .13s}
-nav button.on{color:var(--txt)}
-nav button.on i{transform:translateY(-1px)}
+nav button i{font-size:17px}
+nav button.on{color:var(--txt);background:var(--surf2)}
+nav button.on::before{
+  content:'';position:absolute;left:-7px;top:50%;transform:translateY(-50%);
+  width:3px;height:20px;border-radius:0 3px 3px 0;background:var(--amber);
+}
 
 /* ── sheet ────────────────────────────────────── */
 .sheet{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.7);
+       padding-left:calc(var(--navw) + env(safe-area-inset-left,0px));
        display:flex;align-items:flex-end;justify-content:center;
        animation:fade .16s ease}
 @keyframes fade{from{opacity:0}}
@@ -268,10 +278,56 @@ pre.msg{
 }
 .seg button.on{background:var(--surf3);border-color:var(--line2);color:var(--txt)}
 
+/* ── pipeline board ───────────────────────────── */
+.board{display:flex;gap:11px;overflow-x:auto;padding:2px 18px 10px;margin:0 -18px;
+       scrollbar-width:none;align-items:flex-start}
+.col{
+  flex:0 0 250px;background:var(--surf);border:1px solid var(--line);
+  border-radius:var(--r);display:flex;flex-direction:column;max-height:66vh;overflow:hidden;
+}
+.col-hd{padding:12px 13px;border-bottom:1px solid var(--line);cursor:pointer}
+.col-hd:active{background:var(--surf2)}
+.col-hd .t{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.col-hd b{font-size:13px;letter-spacing:-.01em}
+.col-hd .cnt{
+  margin-left:auto;font-size:10.5px;font-weight:700;color:var(--dim);
+  background:var(--surf3);border-radius:999px;padding:2px 8px;min-width:22px;text-align:center
+}
+.col-hd p{margin:0;font-size:11.5px;color:var(--faint);line-height:1.45;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.col-body{padding:10px;overflow-y:auto;flex:1;min-height:70px}
+.mini{
+  background:var(--surf2);border:1px solid var(--line);border-radius:10px;
+  padding:9px 10px;margin-bottom:7px;cursor:pointer;transition:transform .09s,border-color .13s;
+}
+.mini:active{transform:scale(.98);border-color:var(--line2)}
+.mini .n{font-size:13px;font-weight:600;letter-spacing:-.01em}
+.mini .d{font-size:11px;color:var(--faint);margin-top:3px;display:flex;align-items:center;gap:6px}
+.mini .sd{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.col.finished{opacity:.72}
+.colempty{color:var(--faint);font-size:11.5px;text-align:center;padding:14px 6px}
+
+/* ── tools ────────────────────────────────────── */
+.tool{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:var(--surf);border:1px solid var(--line);border-radius:12px;
+  padding:13px 14px;margin-bottom:9px;cursor:pointer;color:var(--txt);
+  font-family:inherit;transition:transform .09s,border-color .13s;
+}
+.tool:active{transform:scale(.99);border-color:var(--line2)}
+.tool[disabled]{opacity:.45}
+.tool .ic{
+  width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex-shrink:0;
+  background:var(--surf3);color:var(--dim);font-size:14px;
+}
+.tool.warn .ic{color:var(--amber)}
+.tool b{display:block;font-size:14px;font-weight:600}
+.tool span{display:block;font-size:11.5px;color:var(--faint);margin-top:2px;line-height:1.4}
+
 /* ── toast ────────────────────────────────────── */
 #toast{
   position:fixed;left:50%;transform:translateX(-50%);
-  bottom:calc(var(--tabh) + 18px + env(safe-area-inset-bottom,0px));
+  bottom:calc(24px + env(safe-area-inset-bottom,0px));
   background:#fafafa;color:#08080a;padding:12px 18px;border-radius:11px;
   font-size:13.5px;font-weight:650;z-index:60;max-width:88%;text-align:center;
   box-shadow:0 10px 34px rgba(0,0,0,.6);animation:up .2s ease;
@@ -302,9 +358,10 @@ pre.msg{
 
 <nav>
   <button data-tab="leads" class="on"><i class="fa-solid fa-users"></i>Leads</button>
+  <button data-tab="seq"><i class="fa-solid fa-diagram-project"></i>Pipeline</button>
   <button data-tab="add"><i class="fa-solid fa-plus"></i>Add</button>
-  <button data-tab="seq"><i class="fa-solid fa-layer-group"></i>Steps</button>
   <button data-tab="log"><i class="fa-solid fa-receipt"></i>Log</button>
+  <button data-tab="tools"><i class="fa-solid fa-wrench"></i>Tools</button>
   <button data-tab="settings"><i class="fa-solid fa-sliders"></i>Settings</button>
 </nav>
 
@@ -531,10 +588,19 @@ function openLead(l){
       return '<div class="field"><label>'+esc(c.name)+'</label>'+input+'</div>';
     }).join('');
 
+    // Spell out what the number means - "Row 2" alone reads as "the 2nd lead"
+    // when it is actually the sheet row, and row 2 IS the first lead.
+    var pos = LEADS ? (LEADS.map(function(x){return x.threadId;}).indexOf(l.threadId) + 1) : 0;
     $('#lrow').outerHTML =
-      '<p class="tiny" style="margin:-4px 0 15px">Row '+d.row+' — every column, custom ones included.</p>'+
+      '<p class="tiny" style="margin:-4px 0 14px">Sheet row '+d.row+
+        (pos ? ' · lead '+pos+' of '+LEADS.length : '')+
+        ' · '+d.cells.length+' columns</p>'+
       fields+
+      '<button class="btn ghost" id="laddcol" style="margin-bottom:9px">'+
+        '<i class="fa-solid fa-plus"></i>Add a column / variable</button>'+
       '<button class="btn" id="lsave"><i class="fa-solid fa-check"></i>Save changes</button>';
+
+    $('#laddcol').onclick = function(){ openAddColumn(l); };
 
     $('#lsave').onclick=function(){
       var updates={}, n=0;
@@ -558,6 +624,49 @@ function openLead(l){
   }).catch(function(e){
     var el=$('#lrow'); if(el) el.outerHTML=nothing('triangle-exclamation','Could not load',e.message);
   });
+}
+
+/**
+ * Adds a new column to ActiveFollowUps. Any header past `notes` automatically
+ * becomes a {{variable}}, so this is also how you add a merge field.
+ */
+function openAddColumn(lead){
+  openSheet('Add a column',
+    '<p class="muted" style="margin-top:0">Adds a column to every lead and gives you a new '+
+    'variable to use in messages.</p>'+
+    '<div class="field"><label>Column name</label>'+
+      '<input id="cn" placeholder="companyName" autocapitalize="off" spellcheck="false">'+
+      '<p class="tiny" id="cprev" style="margin:8px 0 0">It becomes <b>{{companyName}}</b> '+
+      'in your sequence messages.</p></div>'+
+    '<button class="btn" id="cok"><i class="fa-solid fa-check"></i>Add column</button>');
+
+  var inp = $('#cn');
+  inp.oninput = function(){
+    var v = inp.value.trim().replace(/[^A-Za-z0-9_]/g,'') || 'companyName';
+    $('#cprev').innerHTML = 'It becomes <b>{{'+esc(v)+'}}</b> in your sequence messages.';
+  };
+
+  $('#cok').onclick = function(){
+    var n = inp.value.trim();
+    if(!n){ toast('Enter a column name', true); return; }
+    $('#cok').disabled = true;
+    $('#cok').innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiAddLeadColumn',[n]).then(function(r){
+      closeSheet();
+      // refresh the variable chips and reopen the lead so the new field shows
+      api('uiGetVariables').then(function(v){ VARS = v; }).catch(function(){});
+      api('uiGetLeads').then(function(rows){
+        LEADS = rows;
+        var again = rows.filter(function(x){ return x.threadId === lead.threadId; })[0];
+        if(again) openLead(again); else renderLeads();
+      }).catch(function(){ renderLeads(); });
+      toast('Added ' + r.token);
+    }).catch(function(e){
+      $('#cok').disabled = false;
+      $('#cok').innerHTML = '<i class="fa-solid fa-check"></i>Add column';
+      toast(e.message, true);
+    });
+  };
 }
 
 // ============================================================
@@ -637,8 +746,8 @@ function openEnroll(t){
 // ============================================================
 function renderSeq(){
   if(!SEQS){ busy(); loadSeqs().then(renderSeq).catch(fail); return; }
+  if(!LEADS){ busy(); api('uiGetLeads').then(function(d){ LEADS=d; renderSeq(); }).catch(fail); return; }
 
-  // keep the selected sequence if it still exists, else fall back to the first
   if(!CURSEQ || !SEQS.some(function(s){ return s.name===CURSEQ; })){
     CURSEQ = SEQS.length ? SEQS[0].name : null;
   }
@@ -653,22 +762,64 @@ function renderSeq(){
   var body;
   if(!cur){
     body = nothing('layer-group','No sequences yet','Tap New to create your first one.');
-  } else if(!cur.steps.length){
-    body = nothing('feather','No steps in '+cur.name,'Add step 1 and it will start sending.');
   } else {
-    body = cur.steps.map(function(st){
-      return '<div class="card tap" data-step="'+st.n+'">'+
-        '<div class="row" style="margin-bottom:10px">'+
-          '<div class="grow"><b style="font-size:13.5px;letter-spacing:-.01em">Step '+st.n+'</b></div>'+
-          '<span class="st st-Done"><span class="dot"></span>wait '+st.awaitDays+'d</span>'+
-        '</div><pre class="msg">'+esc(st.message)+'</pre></div>';
-    }).join('');
+    // Leads on this sequence, bucketed by which step goes out NEXT.
+    // sequenceStep is how many have been SENT, so step N's column holds
+    // leads whose sequenceStep is N-1. Finished leads get their own column.
+    var LIVE = {Active:1, OOO:1, Paused:1};
+    var mine = LEADS.filter(function(l){ return l.sequenceName === cur.name; });
+    var done = mine.filter(function(l){ return !LIVE[l.status]; });
+
+    var cols = cur.steps.map(function(st){
+      return {
+        step:  st,
+        leads: mine.filter(function(l){ return LIVE[l.status] && l.step === st.n - 1; })
+      };
+    });
+
+    var card = function(l){
+      var r = rel(l.nextSendDate);
+      var tone = {Active:'--blue',Replied:'--green',OOO:'--amber',Bounced:'--red',
+                  Error:'--red',Paused:'--purple',Done:'--gray'}[l.status] || '--gray';
+      return '<div class="mini" data-mini="'+esc(l.threadId)+'">'+
+        '<div class="n ell">'+esc(l.leadName || l.leadEmail)+'</div>'+
+        '<div class="d"><span class="sd" style="background:var('+tone+')"></span>'+
+          esc(l.status)+(l.status==='Active'&&r.txt ? ' · '+esc(r.txt) : '')+'</div>'+
+      '</div>';
+    };
+
+    body = '<div class="board">'+
+      cols.map(function(col){
+        return '<div class="col">'+
+          '<div class="col-hd" data-step="'+col.step.n+'">'+
+            '<div class="t"><b>Step '+col.step.n+'</b>'+
+              '<span class="st st-Done"><span class="dot"></span>'+col.step.awaitDays+'d</span>'+
+              '<span class="cnt">'+col.leads.length+'</span></div>'+
+            '<p>'+esc(col.step.message)+'</p>'+
+          '</div>'+
+          '<div class="col-body">'+
+            (col.leads.length ? col.leads.map(card).join('')
+                              : '<div class="colempty">No one here</div>')+
+          '</div></div>';
+      }).join('') +
+      '<div class="col finished">'+
+        '<div class="col-hd" style="cursor:default">'+
+          '<div class="t"><b>Finished</b><span class="cnt">'+done.length+'</span></div>'+
+          '<p>Replied, done, bounced or errored</p></div>'+
+        '<div class="col-body">'+
+          (done.length ? done.map(card).join('') : '<div class="colempty">Nobody yet</div>')+
+        '</div></div>'+
+      '<div class="col" style="flex:0 0 120px;border-style:dashed">'+
+        '<div class="col-hd" id="addstep" style="text-align:center">'+
+          '<div class="t" style="justify-content:center"><b style="color:var(--dim)">'+
+          '<i class="fa-solid fa-plus"></i> Step '+(cur.steps.length+1)+'</b></div></div>'+
+      '</div>'+
+    '</div>';
   }
 
   view().innerHTML = '<div class="chips">'+chips+'</div>' + body +
-    (cur ? '<button class="btn ghost" id="addstep" style="margin-top:4px">'+
-           '<i class="fa-solid fa-plus"></i>Add step '+(cur.steps.length+1)+'</button>'+
-           '<p class="tiny" style="margin:12px 0 16px">Wait days = how long AFTER this step before the next one goes out.</p>'+
+    (cur ? '<p class="tiny" style="margin:14px 0 14px">Tap a column header to edit that step. '+
+           'Tap a lead to open it. Columns show who receives that step NEXT.</p>'+
            '<button class="btn danger" id="delseq">'+
            '<i class="fa-solid fa-trash"></i>Delete "'+esc(cur.name)+'"</button>' : '');
 
@@ -677,12 +828,19 @@ function renderSeq(){
   });
   $('#newseq').onclick = openNewSeq;
   if(cur){
-    $('#addstep').onclick=function(){ openStep(cur, null); };
-    $('#delseq').onclick=function(){ openDelSeq(cur); };
+    $('#delseq').onclick = function(){ openDelSeq(cur); };
+    var add = $('#addstep');
+    if(add) add.onclick = function(){ openStep(cur, null); };
     view().querySelectorAll('[data-step]').forEach(function(el){
-      el.onclick=function(){
-        var n=+el.dataset.step;
+      el.onclick = function(){
+        var n = +el.dataset.step;
         openStep(cur, cur.steps.filter(function(s){ return s.n===n; })[0]);
+      };
+    });
+    view().querySelectorAll('[data-mini]').forEach(function(el){
+      el.onclick = function(){
+        var l = LEADS.filter(function(x){ return x.threadId===el.dataset.mini; })[0];
+        if(l) openLead(l);
       };
     });
   }
@@ -896,6 +1054,67 @@ function renderLog(){
 }
 
 // ============================================================
+// TAB: tools
+// ============================================================
+function renderTools(){
+  var ACTIONS = [
+    { k:'startDailyRun', i:'play', t:'Start the chain',
+      d:'Runs all the pre-flight checks, then works through everything due today.' },
+    { k:'manualProcessOneLead', i:'forward-step', t:'Process one lead',
+      d:'Handles a single due lead right now. This can send a real email.', warn:1 },
+    { k:'sendNotificationEmail', i:'envelope', t:'Send summary now',
+      d:'Emails the usual summary to your notificationEmail.' },
+    { k:'cleanUpStuckTriggers', i:'broom', t:'Clean up stuck triggers',
+      d:'Clears leftover triggers and releases the chain lock. Safe any time.' },
+    { k:'createTriggers', i:'clock-rotate-left', t:'Recreate triggers',
+      d:'Rebuilds the 8am daily, Monday summary and enroll watcher.', warn:1 },
+    { k:'clearParked', i:'rotate-left', t:'Clear today\'s parked list',
+      d:'Forgets which leads already went out today. Only for testing - it can '+
+        'let a lead be emailed twice in one day.', warn:1 },
+    { k:'clearQuotaStop', i:'gauge-high', t:'Clear the quota stop',
+      d:'Lets the chain run again after a Gmail quota block.' }
+  ];
+
+  view().innerHTML =
+    '<h2 class="sec">Run something</h2>' +
+    ACTIONS.map(function(a){
+      return '<button class="tool'+(a.warn?' warn':'')+'" data-act="'+a.k+'">'+
+        '<span class="ic"><i class="fa-solid fa-'+a.i+'"></i></span>'+
+        '<span class="grow"><b>'+esc(a.t)+'</b><span>'+esc(a.d)+'</span></span>'+
+        '<i class="fa-solid fa-chevron-right" style="color:var(--faint);font-size:12px"></i>'+
+      '</button>';
+    }).join('') +
+    '<p class="tiny" style="margin-top:14px">Amber ones either send mail or change '+
+    'how the system runs, so they ask twice.</p>';
+
+  view().querySelectorAll('[data-act]').forEach(function(b){
+    var a = ACTIONS.filter(function(x){ return x.k===b.dataset.act; })[0];
+    var armed = false, label = b.innerHTML;
+    b.onclick = function(){
+      if(a.warn && !armed){
+        armed = true;
+        b.querySelector('b').textContent = 'Tap again to confirm';
+        setTimeout(function(){
+          armed = false;
+          if(b.isConnected) b.innerHTML = label;
+        }, 3200);
+        return;
+      }
+      b.disabled = true;
+      b.querySelector('.ic').innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
+      api('uiRunAction',[a.k]).then(function(msg){
+        b.disabled = false; b.innerHTML = label; armed = false;
+        toast(msg);
+        refreshHeader(); LEADS = null;
+      }).catch(function(e){
+        b.disabled = false; b.innerHTML = label; armed = false;
+        toast(e.message, true);
+      });
+    };
+  });
+}
+
+// ============================================================
 // TAB: settings
 // ============================================================
 function renderSettings(){
@@ -956,7 +1175,8 @@ function renderSettings(){
 // ============================================================
 // routing
 // ============================================================
-var TABS={leads:renderLeads,add:renderAdd,seq:renderSeq,log:renderLog,settings:renderSettings};
+var TABS={leads:renderLeads,add:renderAdd,seq:renderSeq,log:renderLog,
+          tools:renderTools,settings:renderSettings};
 
 function go(tab){
   document.querySelectorAll('nav button').forEach(function(b){
