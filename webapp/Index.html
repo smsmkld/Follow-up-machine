@@ -278,6 +278,64 @@ select.vpick{
 }
 .seg button.on{background:var(--surf3);border-color:var(--line2);color:var(--txt)}
 
+/* ── remove-column X ──────────────────────────── */
+label.lbl{display:flex;align-items:center;gap:8px}
+.xcol{
+  margin-left:auto;flex-shrink:0;width:21px;height:21px;border-radius:50%;padding:0;
+  background:var(--surf2);border:1px solid var(--line);color:var(--faint);
+  font-size:9.5px;display:grid;place-items:center;cursor:pointer;transition:all .12s;
+}
+.xcol:hover{color:var(--red);border-color:rgba(255,93,82,.45);background:rgba(255,93,82,.1)}
+.xcol:active{transform:scale(.88)}
+
+/* ── global busy state ────────────────────────── */
+/* One request in flight freezes every control, so a slow Apps Script call
+   cannot be double-submitted or interrupted by a tab switch mid-write. */
+#bar{
+  position:fixed;top:0;left:0;right:0;height:2px;z-index:80;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--amber),transparent);
+  background-size:40% 100%;background-repeat:no-repeat;
+  opacity:0;transition:opacity .15s;
+}
+body[data-busy] #bar{opacity:1;animation:slide 1.1s linear infinite}
+@keyframes slide{from{background-position:-40% 0}to{background-position:140% 0}}
+body[data-busy] button:not(.allow-busy),
+body[data-busy] input,
+body[data-busy] select,
+body[data-busy] textarea,
+body[data-busy] .card.tap,
+body[data-busy] .mini,
+body[data-busy] .col-hd{
+  pointer-events:none;
+}
+body[data-busy] nav,
+body[data-busy] main{opacity:.55;transition:opacity .15s}
+body[data-busy] .spin{opacity:1}
+
+/* ── nav toggle ───────────────────────────────── */
+.navtog{
+  width:28px;height:28px;border-radius:9px;flex-shrink:0;padding:0;
+  background:var(--surf2);border:1px solid var(--line);color:var(--dim);
+  font-size:13px;display:grid;place-items:center;cursor:pointer;
+}
+.navtog:active{transform:scale(.92)}
+nav{transition:transform .22s cubic-bezier(.32,.72,0,1)}
+body{transition:padding-left .22s cubic-bezier(.32,.72,0,1)}
+body.navhidden{padding-left:env(safe-area-inset-left,0px)}
+body.navhidden nav{transform:translateX(-102%)}
+body.navhidden .sheet{padding-left:env(safe-area-inset-left,0px)}
+
+/* ── lock screen ──────────────────────────────── */
+#lock{
+  position:fixed;inset:0;z-index:90;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;padding:24px;
+}
+#lock .box{width:100%;max-width:340px;text-align:center}
+#lock .mark{width:46px;height:46px;margin:0 auto 18px;font-size:19px;border-radius:14px}
+#lock h2{margin:0 0 6px;font-size:17px;letter-spacing:-.01em}
+#lock p{margin:0 0 22px;color:var(--faint);font-size:13px;line-height:1.5}
+#lock input{text-align:center;letter-spacing:.04em;margin-bottom:11px}
+
 /* ── settings controls ────────────────────────── */
 .t12{display:flex;gap:7px;align-items:center}
 .t12 select{flex:1;min-width:0}
@@ -354,8 +412,12 @@ select.vpick{
 </head>
 <body>
 
+<div id="bar"></div>
+
 <header>
   <div class="brand">
+    <button class="navtog allow-busy" id="navtog" title="Show or hide the menu">
+      <i class="fa-solid fa-bars"></i></button>
     <div class="mark"><i class="fa-solid fa-bolt"></i></div>
     <h1>Follow Up Machine</h1>
     <span class="pill" id="pill"><span class="dot"></span><span id="pilltxt">···</span></span>
@@ -392,25 +454,60 @@ var API_TOKEN = '';
 // ============================================================
 var NATIVE = (typeof google !== 'undefined' && google.script && google.script.run);
 
+// ── token store (remote mode only) ──────────────────────────
+// In Apps Script mode Google's own login is the lock and none of this runs.
+function getToken(){
+  if (API_TOKEN) return API_TOKEN;                 // hardcoded still works
+  try { return localStorage.getItem('fum_token') || ''; } catch(e){ return ''; }
+}
+function setToken(t){ try{ localStorage.setItem('fum_token', t); }catch(e){} }
+function clearToken(){ try{ localStorage.removeItem('fum_token'); }catch(e){} }
+
+// ── global busy state ───────────────────────────────────────
+// Every in-flight request bumps a counter; while it is above zero the whole
+// UI is frozen and the top bar animates. An Apps Script round trip is 1-3s,
+// which is more than long enough to double-tap a Save or switch tabs mid-write.
+var INFLIGHT = 0;
+function busyStart(){
+  INFLIGHT++;
+  document.body.dataset.busy = '1';
+}
+function busyEnd(){
+  INFLIGHT = Math.max(0, INFLIGHT - 1);
+  if (INFLIGHT === 0) delete document.body.dataset.busy;
+}
+
 function api(fn, args){
   args = args || [];
+  busyStart();
   return new Promise(function(resolve, reject){
+    // Never leave the UI frozen because a call hung. Apps Script has its own
+    // 6-minute cap, but a dead network would otherwise wedge us forever.
+    var done = false;
+    var finish = function(f){ return function(v){
+      if (done) return; done = true; busyEnd(); f(v);
+    };};
+    var ok = finish(resolve), no = finish(reject);
+    setTimeout(function(){
+      if (!done) no(new Error('That took too long and was given up on. Try again.'));
+    }, 90000);
+
     if (NATIVE){
       google.script.run
-        .withSuccessHandler(resolve)
-        .withFailureHandler(function(e){ reject(new Error(e && e.message ? e.message : String(e))); })
+        .withSuccessHandler(ok)
+        .withFailureHandler(function(e){ no(new Error(e && e.message ? e.message : String(e))); })
         [fn].apply(null, args);
       return;
     }
     if (!API_URL){
-      reject(new Error('API_URL is empty. Open this from the Apps Script /exec URL, or fill in API_URL and API_TOKEN at the top of this file.'));
+      no(new Error('API_URL is empty. Open this from the Apps Script /exec URL, or fill in API_URL at the top of this file.'));
       return;
     }
     fetch(API_URL, {
       method:'POST',
       // text/plain avoids a CORS preflight, which Apps Script cannot answer
       headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-      body: JSON.stringify({ token:API_TOKEN, fn:fn, args:args })
+      body: JSON.stringify({ token:getToken(), fn:fn, args:args })
     })
     .then(function(r){ return r.text(); })
     .then(function(txt){
@@ -424,11 +521,18 @@ function api(fn, args){
         }
         throw new Error('Unreadable response from the server.');
       }
-      if (!j.ok) throw new Error(j.error || 'Server error');
+      if (!j.ok){
+        // A rejected token means the saved password is wrong or was changed.
+        if (/unauthor/i.test(j.error||'')){
+          clearToken();
+          setTimeout(showLock, 60);
+        }
+        throw new Error(j.error || 'Server error');
+      }
       return j.data;
     })
-    .then(resolve)
-    .catch(function(e){ reject(e instanceof Error ? e : new Error(String(e))); });
+    .then(ok)
+    .catch(function(e){ no(e instanceof Error ? e : new Error(String(e))); });
   });
 }
 
@@ -600,10 +704,9 @@ function openLead(l){
       }
       // Columns past `notes` are yours - offer a remove control on those only.
       var mine = c.col > 13;
-      var lbl = '<label>'+esc(c.name)+
-        (mine ? '<button class="vchip" data-drop="'+esc(c.name)+'" '+
-                'style="float:right;margin-top:-4px;padding:3px 8px;font-size:10px;'+
-                'color:var(--red);border-color:rgba(255,93,82,.3)">remove</button>' : '')+
+      var lbl = '<label class="lbl">'+esc(c.name)+
+        (mine ? '<button class="xcol" data-drop="'+esc(c.name)+'" '+
+                'title="Remove this column"><i class="fa-solid fa-xmark"></i></button>' : '')+
         '</label>';
       return '<div class="field">'+lbl+input+'</div>';
     }).join('');
@@ -1156,8 +1259,11 @@ function renderTools(){
       d:'Forgets which leads already went out today. Only for testing - it can '+
         'let a lead be emailed twice in one day.', warn:1 },
     { k:'clearQuotaStop', i:'gauge-high', t:'Clear the quota stop',
-      d:'Lets the chain run again after a Gmail quota block.' }
-  ];
+      d:'Lets the chain run again after a Gmail quota block.' },
+    { k:'clearAuthLock', i:'lock-open', t:'Clear the sign-in lockout',
+      d:'Ten wrong passwords locks the endpoint for 15 minutes. This lifts it early.',
+      remote:1 }
+  ].filter(function(a){ return !a.remote || !NATIVE; });
 
   view().innerHTML =
     '<h2 class="sec">Run something</h2>' +
@@ -1169,7 +1275,18 @@ function renderTools(){
       '</button>';
     }).join('') +
     '<p class="tiny" style="margin-top:14px">Amber ones either send mail or change '+
-    'how the system runs, so they ask twice.</p>';
+    'how the system runs, so they ask twice.</p>'+
+    (NATIVE ? '' :
+      '<h2 class="sec">This device</h2>'+
+      '<button class="tool" id="signout">'+
+        '<span class="ic"><i class="fa-solid fa-right-from-bracket"></i></span>'+
+        '<span class="grow"><b>Sign out</b><span>Forgets the password stored in this '+
+        'browser. You will be asked for it next time.</span></span>'+
+        '<i class="fa-solid fa-chevron-right" style="color:var(--faint);font-size:12px"></i>'+
+      '</button>');
+
+  var so = $('#signout');
+  if (so) so.onclick = signOut;
 
   view().querySelectorAll('[data-act]').forEach(function(b){
     var a = ACTIONS.filter(function(x){ return x.k===b.dataset.act; })[0];
@@ -1414,6 +1531,85 @@ function renderSettings(){
 }
 
 // ============================================================
+// nav rail: hideable, remembered
+// ============================================================
+var NARROW = function(){
+  try { return window.matchMedia('(max-width: 720px)').matches; } catch(e){ return false; }
+};
+function setNav(hidden){
+  document.body.classList.toggle('navhidden', !!hidden);
+  var i = document.querySelector('#navtog i');
+  if (i) i.className = hidden ? 'fa-solid fa-bars' : 'fa-solid fa-bars-staggered';
+  try { localStorage.setItem('fum_nav', hidden ? 'hidden' : 'shown'); } catch(e){}
+}
+function initNav(){
+  var saved = '';
+  try { saved = localStorage.getItem('fum_nav') || ''; } catch(e){}
+  // No saved choice: start hidden on a phone, shown on anything wider.
+  setNav(saved ? saved === 'hidden' : NARROW());
+  document.getElementById('navtog').onclick = function(){
+    setNav(!document.body.classList.contains('navhidden'));
+  };
+}
+
+// ============================================================
+// lock screen (remote hosting only)
+// ============================================================
+//
+// Apps Script mode needs none of this - Google already asked who you are.
+// Remote mode otherwise ships the token inside the page, readable by anyone
+// who opens the URL. Asking for it once and keeping it in this browser keeps
+// it out of the file entirely.
+function needsLock(){ return !NATIVE && !!API_URL && !getToken(); }
+
+function showLock(){
+  if (document.getElementById('lock')) return;
+  var d = document.createElement('div');
+  d.id = 'lock';
+  d.innerHTML =
+    '<div class="box">'+
+      '<div class="mark"><i class="fa-solid fa-bolt"></i></div>'+
+      '<h2>Follow Up Machine</h2>'+
+      '<p>Enter your password to unlock. It is the <b>webAppToken</b> row in '+
+      'your Settings sheet, and it stays in this browser only.</p>'+
+      '<input id="lockpw" type="password" autocomplete="current-password" '+
+             'placeholder="password" autocapitalize="off" spellcheck="false">'+
+      '<button class="btn allow-busy" id="lockgo">'+
+        '<i class="fa-solid fa-unlock"></i>Unlock</button>'+
+      '<p id="lockerr" class="tiny" style="color:var(--red);margin-top:12px;min-height:16px"></p>'+
+    '</div>';
+  document.body.appendChild(d);
+
+  var go = function(){
+    var pw = document.getElementById('lockpw').value.trim();
+    if (!pw){ document.getElementById('lockerr').textContent = 'Type your password.'; return; }
+    var btn = document.getElementById('lockgo');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>Checking';
+    setToken(pw);
+    // uiGetStats is cheap and authenticated - a clean result proves the token.
+    api('uiGetStats').then(function(){
+      d.remove();
+      boot();
+    }).catch(function(e){
+      clearToken();
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-unlock"></i>Unlock';
+      document.getElementById('lockerr').textContent = e.message;
+    });
+  };
+  document.getElementById('lockgo').onclick = go;
+  document.getElementById('lockpw').onkeydown = function(e){ if (e.key === 'Enter') go(); };
+  setTimeout(function(){ try{ document.getElementById('lockpw').focus(); }catch(e){} }, 80);
+}
+
+function signOut(){
+  clearToken();
+  LEADS = SEQS = VARS = STATS = null;
+  showLock();
+}
+
+// ============================================================
 // routing
 // ============================================================
 var TABS={leads:renderLeads,add:renderAdd,seq:renderSeq,log:renderLog,
@@ -1428,13 +1624,21 @@ function go(tab){
   TABS[tab]();
 }
 document.querySelectorAll('nav button').forEach(function(b){
-  b.onclick=function(){ go(b.dataset.tab); };
+  b.onclick=function(){
+    go(b.dataset.tab);
+    if (NARROW()) setNav(true);   // give the content the whole screen back
+  };
 });
 
-loadSeqs().catch(function(){ SEQS=[]; });
-api('uiGetVariables').then(function(v){ VARS=v; }).catch(function(){ VARS=[]; });
-refreshHeader();
-go('leads');
+function boot(){
+  loadSeqs().catch(function(){ SEQS=[]; });
+  api('uiGetVariables').then(function(v){ VARS=v; }).catch(function(){ VARS=[]; });
+  refreshHeader();
+  go('leads');
+}
+
+initNav();
+if (needsLock()) showLock(); else boot();
 </script>
 </body>
 </html>

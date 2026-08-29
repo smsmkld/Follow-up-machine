@@ -80,10 +80,17 @@ function doPost(e) {
     if (!expected) {
       return reply({ ok: false, error: 'Remote access is off. Add a webAppToken row to Settings to enable it.' });
     }
+
+    // Refuse while locked out, before even looking at the token.
+    const locked = _authLockMessage();
+    if (locked) return reply({ ok: false, error: locked });
+
     if (String(req.token || '') !== String(expected)) {
+      _authNoteFailure();
       Logger.log('doPost: rejected request with a bad token');
       return reply({ ok: false, error: 'Unauthorized' });
     }
+    _authClearFailures();
 
     const fn = HANDLERS[req.fn];
     if (!fn) return reply({ ok: false, error: 'Unknown function: ' + req.fn });
@@ -95,6 +102,53 @@ function doPost(e) {
     Logger.log('doPost ERROR: ' + err.message);
     return reply({ ok: false, error: err.message });
   }
+}
+
+// ============================================================
+// REMOTE AUTH - failure lockout
+// ============================================================
+//
+// With the deployment set to "Anyone" the /exec URL is public and the token is
+// the only lock. Apps Script does nothing to slow down guessing, so this does:
+// 10 bad tokens inside 15 minutes and everything is refused until the window
+// passes. Irrelevant when Apps Script serves the page itself - the front end
+// calls the functions directly and never reaches doPost.
+
+var _AUTH_KEY      = 'authFails';
+var _AUTH_MAX      = 10;
+var _AUTH_WINDOWMS = 15 * 60 * 1000;
+
+function _authState() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(_AUTH_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+
+/** Returns a message while locked out, or null when requests may proceed. */
+function _authLockMessage() {
+  const st  = _authState();
+  const now = Date.now();
+  if (!st.first || !st.n) return null;
+  if (now - st.first > _AUTH_WINDOWMS) { _authClearFailures(); return null; }
+  if (st.n < _AUTH_MAX) return null;
+  const mins = Math.ceil((_AUTH_WINDOWMS - (now - st.first)) / 60000);
+  return 'Too many failed attempts. Locked for about ' + mins + ' more minute' +
+         (mins === 1 ? '' : 's') + '.';
+}
+
+function _authNoteFailure() {
+  const now = Date.now();
+  let st = _authState();
+  if (!st.first || now - st.first > _AUTH_WINDOWMS) st = { first: now, n: 0 };
+  st.n = (st.n || 0) + 1;
+  try {
+    PropertiesService.getScriptProperties().setProperty(_AUTH_KEY, JSON.stringify(st));
+  } catch (e) { Logger.log('_authNoteFailure: ' + e.message); }
+  Logger.log('doPost: failed auth ' + st.n + '/' + _AUTH_MAX + ' in this window');
+}
+
+function _authClearFailures() {
+  try { PropertiesService.getScriptProperties().deleteProperty(_AUTH_KEY); }
+  catch (e) {}
 }
 
 // ============================================================
@@ -955,6 +1009,10 @@ function uiRunAction(action) {
     case 'clearParked':
       PropertiesService.getScriptProperties().deleteProperty('parkedLeads');
       return 'Parked list cleared - today\'s already-sent guard is reset.';
+
+    case 'clearAuthLock':
+      _authClearFailures();
+      return 'Sign-in lockout cleared.';
 
     case 'clearQuotaStop':
       PropertiesService.getScriptProperties().deleteProperty('quotaStopDate');
