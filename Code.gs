@@ -1734,11 +1734,12 @@ function sendTestEmail() {
       'MIME-Version: 1.0',
       'From: ' + Session.getActiveUser().getEmail(),
       'To: ' + recipient,
-      'Subject: ' + subject,
+      'Subject: ' + encodeMailHeader(subject),
       'Content-Type: multipart/related; boundary="' + boundary + '"',
       '',
       '--' + boundary,
       'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
       '',
       finalHtml,
       '',
@@ -1754,7 +1755,8 @@ function sendTestEmail() {
     ].join('\r\n');
 
     try {
-      Gmail.Users.Messages.send({ raw: Utilities.base64EncodeWebSafe(rawEmail) }, 'me');
+      Gmail.Users.Messages.send(
+        { raw: Utilities.base64EncodeWebSafe(rawEmail, Utilities.Charset.UTF_8) }, 'me');
       Logger.log('sendTestEmail: step ' + stepToPreview + ' sent with image to ' + recipient);
     } catch (e) {
       SpreadsheetApp.getActiveSpreadsheet().toast('Send failed: ' + e.message, 'Test Send', 8);
@@ -2380,13 +2382,14 @@ function sendReplyRaw(thread, toEmail, bodyText, imgBlob, imgSize) {
       'MIME-Version: 1.0',
       'From: ' + fromEmail,
       'To: ' + toEmail,
-      'Subject: ' + replySubject,
+      'Subject: ' + encodeMailHeader(replySubject),
       'In-Reply-To: ' + messageIdHeader,
       'References: ' + references,
       'Content-Type: multipart/related; boundary="' + boundary + '"',
       '',
       '--' + boundary,
       'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
       '',
       htmlWithImg,
       '',
@@ -2408,10 +2411,11 @@ function sendReplyRaw(thread, toEmail, bodyText, imgBlob, imgSize) {
       'MIME-Version: 1.0',
       'From: ' + fromEmail,
       'To: ' + toEmail,
-      'Subject: ' + replySubject,
+      'Subject: ' + encodeMailHeader(replySubject),
       'In-Reply-To: ' + messageIdHeader,
       'References: ' + references,
       'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
       '',
       htmlBody
     ].join('\r\n');
@@ -2419,8 +2423,12 @@ function sendReplyRaw(thread, toEmail, bodyText, imgBlob, imgSize) {
     Logger.log('sendReplyRaw: sending HTML email to ' + toEmail);
   }
 
+  // Charset is NOT optional here. Without it Apps Script encodes with a
+  // charset that cannot represent anything outside plain ASCII, and every
+  // em dash, curly quote, accent and non-Latin letter reaches the lead as "?".
   Gmail.Users.Messages.send(
-    { raw: Utilities.base64EncodeWebSafe(rawEmail), threadId: thread.getId() },
+    { raw: Utilities.base64EncodeWebSafe(rawEmail, Utilities.Charset.UTF_8),
+      threadId: thread.getId() },
     'me'
   );
 }
@@ -2983,4 +2991,19 @@ function debugReplyCheck() {
     return;
   }
   Logger.log('Lead ' + LEAD_EMAIL + ' not found in ActiveFollowUps.');
+}
+
+/**
+ * Encodes a mail header value per RFC 2047 when it contains anything outside
+ * plain ASCII.
+ *
+ * A raw UTF-8 byte in a Subject: line is not legal - the body may declare its
+ * charset, headers cannot - so a subject carrying an em dash, an accent or a
+ * Turkish letter arrives as mojibake. Pure ASCII is left exactly as it was, so
+ * the common case is untouched.
+ */
+function encodeMailHeader(text) {
+  const s = String(text == null ? '' : text);
+  if (!/[^\x00-\x7F]/.test(s)) return s;
+  return '=?UTF-8?B?' + Utilities.base64Encode(s, Utilities.Charset.UTF_8) + '?=';
 }
