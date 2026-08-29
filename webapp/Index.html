@@ -733,7 +733,11 @@ function openEnroll(t){
     $('#ok').disabled=true; $('#ok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
     api('uiEnrollLead',[t.threadId,LOOKUP,nm,sq,0]).then(function(d){
       LEADS=d; closeSheet(); t.alreadyIn='Active'; paintResults(); refreshHeader();
-      toast('Enrolled — first send tomorrow');
+      // The first send is today when today's window is still open, so read the
+      // real date back off the enrolled lead instead of assuming "tomorrow".
+      var made = d.filter(function(x){ return x.threadId===t.threadId; })[0];
+      var when = made ? rel(made.nextSendDate).txt : '';
+      toast('Enrolled' + (when ? ' — first send ' + when : ''));
     }).catch(function(e){
       $('#ok').disabled=false; $('#ok').innerHTML='<i class="fa-solid fa-check"></i>Enroll';
       toast(e.message,true);

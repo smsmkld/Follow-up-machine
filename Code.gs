@@ -1845,17 +1845,9 @@ function _enrollLeadInner(sheet, row) {
     return;
   }
 
-  // Use plain JS Date here - UrlFetchApp (used by todayStr via timeapi.io) is NOT
-  // available inside onEdit installable triggers. Plain JS Date is always safe.
-  const now      = new Date();
-  const todayVal = now.getFullYear() + '-' +
-                   String(now.getMonth() + 1).padStart(2, '0') + '-' +
-                   String(now.getDate()).padStart(2, '0');
-  const tom      = new Date(now);
-  tom.setDate(tom.getDate() + 1);
-  const tomorrow = tom.getFullYear() + '-' +
-                   String(tom.getMonth() + 1).padStart(2, '0') + '-' +
-                   String(tom.getDate()).padStart(2, '0');
+  // Today if today's sending window is still open, otherwise tomorrow.
+  // Uses the same clock as the sending engine - see firstSendDate below.
+  const tomorrow = firstSendDate();
 
   // Read enrollment defaults from Settings
   const defaultSequence      = getSetting('enrollDefaultSequence')      || '';
@@ -2294,4 +2286,37 @@ function getActiveLeads() {
  */
 function setCell(sheet, row, col, value) {
   sheet.getRange(row, col).setValue(value);
+}
+
+/**
+ * Current time as HH:mm in YOUR configured timezone.
+ * Network-free twin of currentTimeHHMM(), so it is safe inside onEdit
+ * triggers and instant everywhere else. Same answer, no timeapi.io call.
+ */
+function nowInTz() {
+  const tz = getSetting('timezone') || 'UTC';
+  return Utilities.formatDate(new Date(), tz, 'HH:mm');
+}
+
+/**
+ * The date a newly enrolled lead should first be contacted.
+ *
+ * Today if today's sending window has not closed yet, otherwise tomorrow.
+ *
+ * Enrolment used to always say "tomorrow", which made the wait depend on the
+ * hour you happened to click: enrol at 00:01 and the first follow-up sat until
+ * the NEXT day's window, roughly 33 hours; enrol at 23:00 and it went out 10
+ * hours later. Same rule for both now - if there is still time today, use today.
+ */
+function firstSendDate() {
+  const today  = todayInTz();
+  const startT = String(getSetting('followUpStartTime') || '08:00').substring(0, 5);
+  const endT   = String(getSetting('followUpEndTime')   || '18:00').substring(0, 5);
+
+  // Midnight-crossing window (e.g. 17:00-02:00) is open on both sides of
+  // midnight, so there is always time left today.
+  if (startT > endT) return today;
+
+  const now = nowInTz();
+  return now < endT ? today : addDays(today, 1);
 }

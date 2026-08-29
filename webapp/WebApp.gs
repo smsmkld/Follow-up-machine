@@ -286,12 +286,9 @@ function uiEnrollLead(threadId, leadEmail, leadName, sequenceName, totalSteps) {
       throw new Error('That thread is already enrolled.');
     }
 
-    const now = new Date();
-    const tom = new Date(now);
-    tom.setDate(tom.getDate() + 1);
-    const tomorrow = tom.getFullYear() + '-' +
-                     String(tom.getMonth() + 1).padStart(2, '0') + '-' +
-                     String(tom.getDate()).padStart(2, '0');
+    // Today if today's sending window is still open, otherwise tomorrow.
+    // Uses the same clock as the engine - see firstSendDate in Code.gs.
+    const firstSend = firstSendDate();
 
     const newRow = [
       String(leadName || ''),
@@ -301,7 +298,7 @@ function uiEnrollLead(threadId, leadEmail, leadName, sequenceName, totalSteps) {
       String(sequenceName || getSetting('enrollDefaultSequence') || ''),
       0,
       Number(totalSteps) || parseInt(getSetting('enrollDefaultTotalSteps') || '0'),
-      tomorrow,
+      firstSend,
       'Active',
       getSetting('enrollDefaultResumeOnReply').toUpperCase() === 'TRUE',
       '', '', ''
@@ -312,7 +309,8 @@ function uiEnrollLead(threadId, leadEmail, leadName, sequenceName, totalSteps) {
     sheet.getRange(2, CONFIG.cols.nextSendDate).setNumberFormat('yyyy-MM-dd');
     SpreadsheetApp.flush();
 
-    Logger.log('uiEnrollLead: ' + leadEmail + ' | thread ' + threadId + ' | seq ' + newRow[4]);
+    Logger.log('uiEnrollLead: ' + leadEmail + ' | thread ' + threadId +
+               ' | seq ' + newRow[4] + ' | first send ' + firstSend);
     return uiGetLeads();
 
   } finally {
