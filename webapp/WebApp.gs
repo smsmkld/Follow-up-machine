@@ -49,6 +49,7 @@ function doPost(e) {
     uiGetStats:      uiGetStats,
     uiGetLeads:      uiGetLeads,
     uiSetLeadStatus: uiSetLeadStatus,
+    uiResumeLead:    uiResumeLead,
     uiGetSettings:   uiGetSettings,
     uiSaveSetting:   uiSaveSetting,
     uiSearchThreads: uiSearchThreads,
@@ -261,15 +262,77 @@ function uiSetLeadStatus(threadId, status) {
   const row   = _uiFindRowByThreadId(sheet, threadId);
   if (row === -1) throw new Error('That lead is no longer in ActiveFollowUps.');
 
+  const wasStatus = String(sheet.getRange(row, c.status).getValue()).trim();
   sheet.getRange(row, c.status).setValue(status);
 
   // Reactivating: make it due today so the next run picks it up.
   if (status === 'Active') {
     sheet.getRange(row, c.nextSendDate).setValue(todayStr());
+    // Leaving Replied takes more than a status change. Without the cutoff note
+    // processSingleLead re-finds the reply that paused this lead and puts it
+    // straight back to Replied on the very next run.
+    if (wasStatus === 'Replied') _uiWriteResumeCutoff(sheet, row, 'set Active from the app');
   }
 
   SpreadsheetApp.flush();
   Logger.log('uiSetLeadStatus: row ' + row + ' -> ' + status);
+  return uiGetLeads();
+}
+
+/**
+ * Writes the note that lets a lead leave Replied for good.
+ *
+ * Status alone is not enough. processSingleLead re-reads the thread before
+ * every send, finds the reply that paused the lead in the first place, and
+ * puts it back to Replied. This note is what marks that reply as dealt with.
+ * It carries the time, not just the date, so a resume can take effect on the
+ * same day they replied.
+ */
+function _uiWriteResumeCutoff(sheet, row, what) {
+  const c        = CONFIG.cols;
+  const existing = sheet.getRange(row, c.notes).getValue();
+  const note     = '[' + nowStampInTz() + '] Resumed from Replied - ' + what + '.';
+  sheet.getRange(row, c.notes).setValue(existing ? existing + '\n' + note : note);
+  return note;
+}
+
+/**
+ * Put a replied lead back into sending, optionally on a different sequence.
+ * Pass '' for sequenceName to carry on at the step they stopped on.
+ */
+function uiResumeLead(threadId, sequenceName) {
+  const sheet = getSheet(CONFIG.sheets.activeFollowUps);
+  const c     = CONFIG.cols;
+  const row   = _uiFindRowByThreadId(sheet, threadId);
+  if (row === -1) throw new Error('That lead is no longer in ActiveFollowUps.');
+
+  // Validate before writing anything, so a bad name cannot strand the lead on
+  // a sequence that will not resolve.
+  const seq = String(sequenceName || '').trim();
+  if (seq) {
+    let known = [];
+    try { known = getAllSequenceNames(); } catch (e) { known = []; }
+    if (known.indexOf(seq) === -1) {
+      throw new Error('"' + seq + '" is not a sequence in the Sequences sheet.');
+    }
+  }
+
+  const curSeq = String(sheet.getRange(row, c.sequenceName).getValue() || '').trim();
+  const step   = Number(sheet.getRange(row, c.sequenceStep).getValue()) || 0;
+  let   what   = 'continuing at step ' + step;
+
+  if (seq && curSeq !== seq) {
+    sheet.getRange(row, c.sequenceName).setValue(seq);
+    sheet.getRange(row, c.sequenceStep).setValue(0);
+    what = 'moved from "' + curSeq + '" to "' + seq + '" at step 0';
+  }
+
+  sheet.getRange(row, c.status).setValue('Active');
+  sheet.getRange(row, c.nextSendDate).setValue(todayStr());
+  _uiWriteResumeCutoff(sheet, row, what);
+
+  SpreadsheetApp.flush();
+  Logger.log('uiResumeLead: row ' + row + ' - ' + what);
   return uiGetLeads();
 }
 
@@ -686,6 +749,11 @@ function uiSaveLeadRow(threadId, updates) {
   const c = CONFIG.cols;
   const ALLOWED_STATUS = ['Active', 'Replied', 'Paused', 'Done', 'Error', 'OOO', 'Bounced'];
 
+  // Editing status in the field list has to clear the reply the same way the
+  // status buttons do, or the lead silently returns to Replied.
+  const wasStatus = String(sheet.getRange(row, c.status).getValue()).trim();
+  let newStatus   = wasStatus;
+
   let changed = 0;
   for (let i = 0; i < lastCol; i++) {
     const name = String(headers[i] || '').trim();
@@ -698,6 +766,7 @@ function uiSaveLeadRow(threadId, updates) {
     if (col === c.status) {
       v = String(v).trim();
       if (ALLOWED_STATUS.indexOf(v) === -1) throw new Error('Unknown status: ' + v);
+      newStatus = v;
     } else if (col === c.sequenceStep || col === c.totalSteps) {
       v = Number(v) || 0;
     } else if (col === c.resumeOnReply) {
@@ -706,6 +775,11 @@ function uiSaveLeadRow(threadId, updates) {
 
     sheet.getRange(row, col).setValue(v);
     changed++;
+  }
+
+  if (wasStatus === 'Replied' && newStatus === 'Active') {
+    sheet.getRange(row, c.nextSendDate).setValue(todayStr());
+    _uiWriteResumeCutoff(sheet, row, 'set Active from the app');
   }
 
   SpreadsheetApp.flush();

@@ -165,6 +165,20 @@ textarea{resize:vertical;min-height:130px;line-height:1.55;
 label{display:block;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
       color:var(--faint);margin:0 0 7px;font-weight:700}
 .field{margin-bottom:15px}
+
+/* Resume panel in the lead sheet. Amber to match the Replied pill, so the
+   colour already means "paused, waiting on you" everywhere else in the app. */
+.rbox{
+  border:1px solid rgba(255,192,67,.34);
+  background:rgba(255,192,67,.08);
+  border-radius:11px;
+  padding:13px 14px;
+  margin:0 0 16px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.rbox p{margin:0;font-size:12.5px;line-height:1.55;color:var(--faint)}
+.rbox select{margin:0}
+.rbox .btn{margin:0}
 .pair{display:flex;gap:10px}
 .pair .field:first-child{width:112px;flex-shrink:0}
 .pair .field:last-child{flex:1}
@@ -724,6 +738,25 @@ function openLead(l){
       return '<div class="field">'+lbl+input+'</div>';
     }).join('');
 
+    // A replied lead needs more than a status change to start sending again -
+    // the backend has to stamp a cutoff or the reply check undoes it. Give that
+    // its own button rather than making it look like an ordinary field edit.
+    var scell = d.cells.filter(function(x){ return x.kind === 'status'; })[0];
+    var resumeUI = (scell && String(scell.value).trim() === 'Replied')
+      ? '<div class="rbox">'+
+          '<p>This lead replied, so the sequence stopped. Resuming puts them back '+
+          'into sending and marks that reply as handled.</p>'+
+          '<select id="lrseq">'+
+            '<option value="">Carry on where they stopped</option>'+
+            seqNames.map(function(x){
+              return '<option value="'+esc(x)+'">Start &quot;'+esc(x)+'&quot; from step 1</option>';
+            }).join('')+
+          '</select>'+
+          '<button class="btn" id="lresume">'+
+            '<i class="fa-solid fa-rotate-right"></i>Resume sending</button>'+
+        '</div>'
+      : '';
+
     // Spell out what the number means - "Row 2" alone reads as "the 2nd lead"
     // when it is actually the sheet row, and row 2 IS the first lead.
     var pos = LEADS ? (LEADS.map(function(x){return x.threadId;}).indexOf(l.threadId) + 1) : 0;
@@ -731,12 +764,30 @@ function openLead(l){
       '<p class="tiny" style="margin:-4px 0 14px">Sheet row '+d.row+
         (pos ? ' · lead '+pos+' of '+LEADS.length : '')+
         ' · '+d.cells.length+' columns</p>'+
+      resumeUI+
       fields+
       '<button class="btn ghost" id="laddcol" style="margin-bottom:9px">'+
         '<i class="fa-solid fa-plus"></i>Add a column / variable</button>'+
       '<button class="btn" id="lsave"><i class="fa-solid fa-check"></i>Save changes</button>';
 
     $('#laddcol').onclick = function(){ openAddColumn(l); };
+
+    if ($('#lresume')) {
+      $('#lresume').onclick = function(){
+        var seq = $('#lrseq').value;
+        var b = $('#lresume');
+        b.disabled = true;
+        b.innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
+        api('uiResumeLead', [l.threadId, seq]).then(function(rows){
+          LEADS = rows; closeSheet(); renderLeads(); refreshHeader();
+          toast(seq ? 'Resumed on "'+seq+'"' : 'Resumed where they stopped');
+        }).catch(function(e){
+          b.disabled = false;
+          b.innerHTML = '<i class="fa-solid fa-rotate-right"></i>Resume sending';
+          toast(e.message);
+        });
+      };
+    }
 
     $('#ov').querySelectorAll('[data-drop]').forEach(function(b){
       b.onclick = function(ev){ ev.preventDefault(); openDropColumn(l, b.dataset.drop); };
