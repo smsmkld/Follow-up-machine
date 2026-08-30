@@ -3007,3 +3007,82 @@ function encodeMailHeader(text) {
   if (!/[^\x00-\x7F]/.test(s)) return s;
   return '=?UTF-8?B?' + Utilities.base64Encode(s, Utilities.Charset.UTF_8) + '?=';
 }
+
+/**
+ * Put ONE lead back into sending, right now, by hand.
+ *
+ * Use this when replyResumeSequence is blank and resumeOnReply is unticked -
+ * i.e. you handle replied leads yourself rather than on a timer.
+ *
+ * Do NOT do this by editing the row directly. Setting status back to Active on
+ * its own does not work: the reply check re-finds their old reply on the very
+ * next run and flips them straight back to Replied, forever. What breaks the
+ * loop is a cutoff note in the exact format below, timestamped in the
+ * CONFIGURED timezone and later than their last message - which is easy to get
+ * wrong by several hours if you type it yourself. This writes it for you.
+ */
+function resumeLeadNow() {
+  const LEAD_EMAIL = 'asimlogins@gmail.com';
+  const SEQUENCE   = '';   // blank = keep their sequence and carry on where they stopped
+                           // or name one, e.g. 'reEngage', to move them there at step 0
+
+  const c     = CONFIG.cols;
+  const sheet = getSheet(CONFIG.sheets.activeFollowUps);
+  const last  = sheet.getLastRow();
+  if (last < 2) { Logger.log('No leads in ActiveFollowUps.'); return; }
+
+  // Check the sequence exists before touching anything, so a typo cannot
+  // strand the lead on a sequence that does not resolve.
+  const seq = String(SEQUENCE || '').trim();
+  if (seq) {
+    let known = [];
+    try { known = getAllSequenceNames(); } catch (e) { known = []; }
+    if (known.indexOf(seq) === -1) {
+      Logger.log('STOPPED: "' + seq + '" is not a column in the Sequences sheet. ' +
+                 'Known sequences: ' + known.join(', '));
+      return;
+    }
+  }
+
+  const target = String(LEAD_EMAIL || '').trim().toLowerCase();
+  const data   = sheet.getRange(2, 1, last - 1, c.notes).getValues();
+
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][c.leadEmail - 1]).trim().toLowerCase() !== target) continue;
+
+    const row    = i + 2;
+    const was    = String(data[i][c.status - 1]).trim();
+    const curSeq = String(data[i][c.sequenceName - 1] || '').trim();
+    let   step   = Number(data[i][c.sequenceStep - 1]) || 0;
+    let   what   = 'continuing at step ' + step;
+
+    if (seq && curSeq !== seq) {
+      sheet.getRange(row, c.sequenceName).setValue(seq);
+      sheet.getRange(row, c.sequenceStep).setValue(0);
+      step = 0;
+      what = 'moved from "' + curSeq + '" to "' + seq + '" at step 0';
+    }
+
+    const today = todayStr();
+    sheet.getRange(row, c.status).setValue('Active');
+    sheet.getRange(row, c.nextSendDate).setValue(today);
+
+    // The cutoff. Without this exact wording and a timestamp later than their
+    // last message, the lead is back to Replied on the next run.
+    const existing = sheet.getRange(row, c.notes).getValue();
+    const note = '[' + nowStampInTz() + '] Resumed from Replied by hand - ' + what + '.';
+    sheet.getRange(row, c.notes).setValue(existing ? existing + '\n' + note : note);
+    SpreadsheetApp.flush();
+
+    Logger.log('Resumed ' + LEAD_EMAIL + ' (row ' + row + ', was ' + was + ') - ' + what);
+    Logger.log('nextSendDate set to ' + today + '. Cutoff note: ' + note);
+
+    const lastSent = sheetDateToStr(data[i][c.lastSentDate - 1]);
+    if (lastSent === today) {
+      Logger.log('NOTE: this lead was already emailed today, so it will not send ' +
+                 'again until tomorrow. That guard is deliberate.');
+    }
+    return;
+  }
+  Logger.log(LEAD_EMAIL + ' not found in ActiveFollowUps.');
+}
