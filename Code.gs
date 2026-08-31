@@ -1374,6 +1374,46 @@ function processSingleLead(lead) {
   const textPart = replaceVariables(parsed.text, leadName, leadEmail, customVars);
   Logger.log(leadEmail + ': variables replaced - preview: ' + textPart.substring(0, 80) + (imgUrl ? ' | imgSize: ' + imgSize : ''));
 
+  // ── Step 10a: never send a half-rendered message ──────────
+  // A blank leadName ships "Hey , quick question" and a mistyped token ships
+  // {{compnyName}} straight to the prospect. Both go out silently today, and
+  // a broken email is worse than a late one - so park the lead as an Error
+  // and name the offending variables instead of guessing on their behalf.
+  const usedTokens = (parsed.text.match(/\{\{([A-Za-z0-9_]+)\}\}/g) || [])
+    .map(function (t) { return t.slice(2, -2); })
+    .filter(function (t) { return t !== 'IMG_PLACEHOLDER'; });
+
+  const blankVars = [];
+  usedTokens.forEach(function (t) {
+    let v;
+    if      (t === 'leadName')  v = leadName;
+    else if (t === 'leadEmail') v = leadEmail;
+    else if (t === 'firstName') v = leadName ? String(leadName).trim().split(/\s+/)[0] : '';
+    else if (customVars && customVars.hasOwnProperty(t)) v = customVars[t];
+    else return;                    // unknown token - the leftover check below has it
+    if (!String(v == null ? '' : v).trim() && blankVars.indexOf(t) === -1) blankVars.push(t);
+  });
+
+  const leftoverTokens = (textPart.match(/\{\{([A-Za-z0-9_]+)\}\}/g) || [])
+    .filter(function (t) { return t !== '{{IMG_PLACEHOLDER}}'; });
+
+  if (blankVars.length || leftoverTokens.length) {
+    const why = []
+      .concat(blankVars.length      ? ['empty: ' + blankVars.join(', ')] : [])
+      .concat(leftoverTokens.length ? ['unknown: ' + leftoverTokens.join(', ')] : [])
+      .join(' | ');
+    Logger.log(leadEmail + ': NOT SENDING step ' + currentStep +
+               ' - variables unresolved (' + why + ')');
+    setStatusSafe('Error');
+    appendNote('[' + today + '] Not sent at step ' + currentStep +
+               ' - variables unresolved (' + why + '). Fill them in on this row, ' +
+               'then set status back to Active.');
+    logToSendLog(leadEmail, leadName, sequenceName, currentStep, fromAccount, '',
+                 threadId, 'Skipped - Unresolved variables');
+    SpreadsheetApp.flush();
+    return false;
+  }
+
   // ── Step 11: Send the reply ────────────────────────────────
   // imgBlob is passed to sendReplyFromAlias which embeds it inline in the HTML body.
   // If no image, imgBlob is null and a plain HTML email is sent.
