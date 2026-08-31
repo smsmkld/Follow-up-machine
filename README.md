@@ -165,8 +165,14 @@ marked `Done` the moment the last step sends.
 | `{{leadEmail}}` | their address |
 | `{{anything}}` | any column you add past `notes` — the header name is the token |
 
-An unknown token is deliberately left in the text so you notice it rather than
-shipping a blank. Preview every new step with *Send test email* first.
+**A step is never sent with unresolved variables.** If a token in the message
+is empty for that lead, or does not match any column, the send is held and the
+lead is marked `Error` with a note naming the variable. Fill it in on the row
+and set the status back to `Active`. Without this a blank `leadName` ships
+"Hey , quick question" and a mistyped token ships `{{compnyName}}` straight to
+the prospect.
+
+Preview every new step with *Send test email* before it reaches anyone.
 
 ### Images
 
@@ -313,6 +319,16 @@ state — the sequence and step are read fresh on every run.
 The system refuses to touch a lead it already handled today. That guard lives in
 Script Properties, **not the sheet**, so editing the row will not clear it. Run
 `unparkLead`.
+
+### A lead is stuck on Error saying "variables unresolved"
+
+A `{{token}}` in that step is empty for this lead, or names a column that does
+not exist. The note says which. Fill the value in on the lead's row — or fix
+the spelling in the sequence — then set the status back to `Active`.
+
+This is why a newly enrolled lead needs its `leadName` and any custom columns
+filled in before its first send. The system will hold rather than send a
+half-written email, but it cannot invent the value.
 
 ### A lead went Done without ever being emailed
 
