@@ -1,0 +1,1708 @@
+<!--
+  FOLLOW UP MACHINE - single page front end
+
+  TWO MODES, picked automatically:
+
+  A) SERVED BY APPS SCRIPT - leave API_URL and API_TOKEN empty below.
+     Calls server functions directly. Google's login is the lock.
+
+  B) HOSTED ON CLOUDFLARE (or anywhere else) - fill in API_URL + API_TOKEN,
+     add a matching webAppToken row to Settings, and redeploy the Apps Script
+     web app with "Who has access: Anyone".
+
+     In mode B your /exec URL is reachable by anyone on the internet and the
+     token is the only lock. Apps Script does not rate limit it. Use a long
+     random token and never put this file in a public repo with the token in it.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#08080a">
+<title>Follow Up Machine</title>
+
+<!-- Icons are inlined so the whole app stays one file you can drag anywhere.
+     iOS ignores SVG for the home screen, so the touch icon is a real PNG. -->
+<link rel="icon" type="image/png" sizes="32x32"
+      href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEFUlEQVR42rWXS4xUVRCGv6pzb3dPdzOvdmhhCDJCxIWvxJWPHUaIMbiCnWgIRDc+Q0xwQ4wmsjCsJIaAyM7oStkQjcSVLExMUFcaHN6MgDNDN93TTN97TrnonshG5vYN1Ooszkn99Vf9VaeEnikQKpWV9TgO74qwFdgICHfHDPjDjONJogfa7WtXl3zK0mF8fPx5Mz0sImvNlt7cTRNEwMwuiITdc3Nz3wMqACMjtU3O6Q8AZub7oDJHrwLBMrEQRMQBeB+eazRmT0q1Wp2IotJpEVYBAXADxSVwq2sU48x4PaBmzKTprSdcuTy8T1W25HWepMZjU0PMt1KCZaJNgaAqIyKRqQjb+vRInsg3TBbZt2MVna71E5qxIMBE2KbAlJktFWNmcyostD0f75zkRsvTbntcdgTa9zmlecrdqTDfSnnxmRE2b6nx56VbA8L/rzA1j9Z9MKolxyevrcEUhgqaW5sDv4wjYb6ZsmdbnY0PV5Cm59zVLqr5etZAAFSFmx3Po+vLvLG9jm97AKZnFlEFs3sMQIAkMT56dTXDYzEhMVAYKuZOQXYAzgk32ikvPT3K1k3j+GaKi4W0azQXPLETVECVQeRIlFXzqTcqRcf+3ZOYNzBDndJspJw+06GbGA3zmPXuV0qaKSVRZtk1EvbvWsOGhyr4RoJzvQFQHVKOf7ieJDVEeuMtBHj9wHmuzCUUIrkjkCiL80Y75fH1Zd7cXqfbSBEDguFUiCLhqSdX9GkyGIv47MgVpmcWGa1G+GWm1LIAghnFWDn23jpK9QK0PER9ZwseDHw7EIKhZcfvpxrsOXSJ6pAjZMhBtFzuu6mxajzmu1+anPi5iQosJoF19xd5eUsNSwzV3mXzxlsHL5L6QLm4fPQAMjZ2ny0nPR+g0UpBwDnFLya88kKdYx88iL/pwQw3GvP5V3+z68B5JkZjUm93RwVGT1oTY3HvgROuzxuPTA2BE7w34orj3F8LvP/FFUaqLlPkA/eB1BupN5I0gMDqWgS+9wEQgbc/vchsM6UQ6UAdceAWZv3iWLuyAIlRGIk4+s01vj11g/EVUWbq87ViAe+N0YqjNhxBQZie7rD36ODU52bAByiXlMnxGPPGOwfzUX87ABtkGKXemBhxDNcLfH1iluM/5aM+14dERFhMjAfqRW42U/YeucyKSj7qb/+QnBXpNdcsL0KAjWtK7Dt0mbMzi5QKuagPfZ9nXalUXi0iz/YBaJbZ0E0DP/7aohDny3sfgJpxeODFJMcicsfFRFut1nUz2yE9c/0L/xuXGQwVcjk3wIuIExExsx2tVuu6AtpozJ4Ev7m3OIrrxXmnCZmr3kREnJldAL+55xN1S+2+0+mcca76paoFEWpA7R6s50eTRHc2m//8trSi/QtAN+S1OIZLGQAAAABJRU5ErkJggg==">
+<link rel="apple-touch-icon" sizes="180x180"
+      href="data:image/png;base64,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">
+
+<!-- Add to Home Screen opens fullscreen, without the browser chrome. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Follow Up">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+:root{
+  --bg:#08080a; --surf:#111114; --surf2:#17171b; --surf3:#1e1e23;
+  --line:#232329; --line2:#2e2e36;
+  --txt:#fafafa; --dim:#9a9aa4; --faint:#5f5f6b;
+  --blue:#5b9dff; --green:#3ddc97; --amber:#ffc043; --red:#ff5d52;
+  --purple:#b18cff; --gray:#71717f;
+  --navw:70px;
+  --r:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--txt);min-height:100vh;
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding-left:calc(var(--navw) + env(safe-area-inset-left,0px));
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  -webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:0;height:0}
+
+/* ── header ───────────────────────────────────── */
+header{
+  position:sticky;top:0;z-index:20;
+  background:linear-gradient(180deg,rgba(8,8,10,.98),rgba(8,8,10,.92));
+  backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid var(--line);padding:14px 18px 13px;
+}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:13px}
+.mark{
+  width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex-shrink:0;
+  background:linear-gradient(145deg,#2a2a32,#141418);
+  border:1px solid var(--line2);font-size:12px;color:var(--amber);
+}
+.brand h1{margin:0;font-size:12.5px;font-weight:700;letter-spacing:.15em;text-transform:uppercase}
+.pill{
+  margin-left:auto;display:inline-flex;align-items:center;gap:6px;
+  font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  padding:5px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--dim);
+}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.on{color:var(--green);border-color:rgba(61,220,151,.32);background:rgba(61,220,151,.08)}
+.pill.run{color:var(--blue);border-color:rgba(91,157,255,.32);background:rgba(91,157,255,.08)}
+.pill.run .dot{animation:pulse 1.6s ease-in-out infinite}
+.pill.pause{color:var(--amber);border-color:rgba(255,192,67,.32);background:rgba(255,192,67,.08)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.stat{
+  background:linear-gradient(160deg,var(--surf2),var(--surf));
+  border:1px solid var(--line);border-radius:11px;padding:10px 11px;
+}
+.stat b{display:block;font-size:20px;font-weight:700;line-height:1.1;letter-spacing:-.03em;
+        font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:9px;color:var(--faint);text-transform:uppercase;
+           letter-spacing:.09em;margin-top:3px;font-weight:600}
+
+/* ── layout ───────────────────────────────────── */
+main{padding:16px 18px 26px;max-width:800px;margin:0 auto}
+/* the board wants the whole width - 800px made it feel cramped */
+body[data-tab="seq"] main{max-width:none}
+.muted{color:var(--dim);font-size:13px}
+.tiny{font-size:11.5px;color:var(--faint);line-height:1.5}
+.empty{text-align:center;color:var(--faint);padding:52px 24px}
+.empty i{display:block;font-size:30px;margin-bottom:13px;opacity:.3}
+.empty b{display:block;color:var(--dim);font-size:14.5px;margin-bottom:5px;font-weight:600}
+h2.sec{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);
+       margin:22px 0 10px;font-weight:700}
+h2.sec:first-child{margin-top:0}
+
+/* ── cards ────────────────────────────────────── */
+.card{
+  background:var(--surf);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px 15px;margin-bottom:10px;transition:border-color .13s,transform .09s;
+}
+.card.tap{cursor:pointer}
+.card.tap:active{transform:scale(.988);border-color:var(--line2);background:var(--surf2)}
+.row{display:flex;align-items:center;gap:11px}
+.grow{flex:1;min-width:0}
+.ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nm{font-weight:600;font-size:15px;letter-spacing:-.015em}
+.sub{color:var(--dim);font-size:13px;margin-top:3px}
+.meta{color:var(--faint);font-size:11.5px;margin-top:9px;display:flex;gap:14px;flex-wrap:wrap;
+      font-variant-numeric:tabular-nums}
+.meta i{margin-right:5px;opacity:.6}
+
+/* ── status ───────────────────────────────────── */
+.st{
+  display:inline-flex;align-items:center;gap:6px;flex-shrink:0;
+  font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  padding:4px 9px;border-radius:6px;
+}
+.st .dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.st-Active {color:var(--blue);  background:rgba(91,157,255,.12)}
+.st-Replied{color:var(--green); background:rgba(61,220,151,.12)}
+.st-OOO    {color:var(--amber); background:rgba(255,192,67,.12)}
+.st-Bounced{color:var(--red);   background:rgba(255,93,82,.12)}
+.st-Error  {color:var(--red);   background:rgba(255,93,82,.12)}
+.st-Done   {color:var(--gray);  background:rgba(113,113,127,.14)}
+.st-Paused {color:var(--purple);background:rgba(177,140,255,.12)}
+
+/* ── chips (sequence switcher) ────────────────── */
+.chips{
+  display:flex;gap:8px;overflow-x:auto;padding:2px 18px 14px;margin:0 -18px;
+  scrollbar-width:none;
+}
+.chip{
+  flex-shrink:0;background:var(--surf);border:1px solid var(--line);color:var(--dim);
+  border-radius:999px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer;
+  white-space:nowrap;transition:all .13s;font-family:inherit;
+}
+.chip:active{transform:scale(.96)}
+.chip.on{background:var(--txt);border-color:var(--txt);color:#08080a}
+.chip.new{border-style:dashed;color:var(--faint)}
+.chip .n{opacity:.55;margin-left:5px;font-weight:500}
+
+/* ── controls ─────────────────────────────────── */
+input,select,textarea,button{font-family:inherit;font-size:15px}
+input,select,textarea{
+  width:100%;background:var(--surf2);border:1px solid var(--line);color:var(--txt);
+  border-radius:10px;padding:12px 13px;outline:none;transition:border-color .13s;
+}
+input:focus,select:focus,textarea:focus{border-color:#3b3b45;background:var(--surf3)}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+textarea{resize:vertical;min-height:130px;line-height:1.55;
+         font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+label{display:block;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+      color:var(--faint);margin:0 0 7px;font-weight:700}
+.field{margin-bottom:15px}
+
+/* Resume panel in the lead sheet. Amber to match the Replied pill, so the
+   colour already means "paused, waiting on you" everywhere else in the app. */
+.rbox{
+  border:1px solid rgba(255,192,67,.34);
+  background:rgba(255,192,67,.08);
+  border-radius:11px;
+  padding:13px 14px;
+  margin:0 0 16px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.rbox p{margin:0;font-size:12.5px;line-height:1.55;color:var(--faint)}
+.rbox select{margin:0}
+.rbox .btn{margin:0}
+.pair{display:flex;gap:10px}
+.pair .field:first-child{width:112px;flex-shrink:0}
+.pair .field:last-child{flex:1}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  background:var(--txt);color:#08080a;border:none;border-radius:10px;
+  padding:13px 17px;font-weight:650;font-size:14.5px;cursor:pointer;width:100%;
+  transition:transform .09s,opacity .13s;
+}
+.btn:active{transform:scale(.985);opacity:.88}
+.btn[disabled]{opacity:.35;cursor:default;transform:none}
+.btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line2)}
+.btn.danger{background:transparent;color:var(--red);border:1px solid rgba(255,93,82,.35)}
+.btn.sm{padding:10px 13px;font-size:13px;width:auto}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.btnrow .btn{flex:1;min-width:104px}
+
+.switch{
+  display:flex;align-items:center;gap:13px;border-radius:var(--r);padding:15px;
+  margin-bottom:11px;background:var(--surf);border:1px solid var(--line);
+}
+.switch.armed{border-color:rgba(255,192,67,.4);
+              background:linear-gradient(160deg,rgba(255,192,67,.09),rgba(255,192,67,.03))}
+.switch b{display:block;font-size:15px;margin-bottom:2px}
+.knob{
+  width:50px;height:30px;border-radius:999px;background:#2e2e36;position:relative;
+  flex-shrink:0;cursor:pointer;transition:background .18s;border:none;padding:0
+}
+.knob::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;
+             border-radius:50%;background:#fafafa;transition:transform .18s}
+.knob.on{background:var(--amber)}
+.knob.on::after{transform:translateX(20px)}
+
+/* ── tab bar ──────────────────────────────────── */
+nav{
+  position:fixed;left:0;top:0;bottom:0;z-index:40;
+  width:calc(var(--navw) + env(safe-area-inset-left,0px));
+  padding-left:env(safe-area-inset-left,0px);
+  background:rgba(8,8,10,.97);backdrop-filter:saturate(180%) blur(14px);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:stretch;
+  padding-top:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+  gap:2px;overflow-y:auto;
+}
+nav button{
+  background:none;border:none;color:var(--faint);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  padding:11px 2px;margin:0 7px;border-radius:11px;
+  transition:color .13s,background .13s;position:relative;
+}
+nav button i{font-size:17px}
+nav button.on{color:var(--txt);background:var(--surf2)}
+nav button.on::before{
+  content:'';position:absolute;left:-7px;top:50%;transform:translateY(-50%);
+  width:3px;height:20px;border-radius:0 3px 3px 0;background:var(--amber);
+}
+
+/* ── sheet ────────────────────────────────────── */
+.sheet{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.7);
+       padding-left:calc(var(--navw) + env(safe-area-inset-left,0px));
+       display:flex;align-items:flex-end;justify-content:center;
+       animation:fade .16s ease}
+@keyframes fade{from{opacity:0}}
+.sheet-in{
+  background:var(--bg);border-top:1px solid var(--line2);border-radius:20px 20px 0 0;
+  width:100%;max-width:800px;max-height:90vh;overflow-y:auto;
+  padding:8px 18px calc(26px + env(safe-area-inset-bottom,0px));
+  animation:up .22s cubic-bezier(.32,.72,0,1);
+}
+@keyframes up{from{transform:translateY(18px)}}
+.grab{width:34px;height:4px;border-radius:2px;background:var(--line2);margin:0 auto 14px}
+.sheet-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.sheet-hd h3{margin:0;font-size:17px;flex:1;letter-spacing:-.02em}
+.x{background:var(--surf2);border:1px solid var(--line);color:var(--dim);width:30px;height:30px;
+   border-radius:50%;font-size:13px;cursor:pointer;display:grid;place-items:center;flex-shrink:0}
+.kv{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.kv span{color:var(--faint);width:100px;flex-shrink:0;font-size:12.5px}
+.kv div{flex:1;word-break:break-word}
+
+pre.msg{
+  background:var(--surf2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 13px;white-space:pre-wrap;word-break:break-word;
+  font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d8d8de;margin:0;
+  max-height:190px;overflow:hidden;
+}
+
+/* ── lead cards (accent bar + relative date) ──── */
+.lead{position:relative;padding-left:16px;overflow:hidden}
+.lead::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gray)}
+.lead.a-Active::before {background:var(--blue)}
+.lead.a-Replied::before{background:var(--green)}
+.lead.a-OOO::before    {background:var(--amber)}
+.lead.a-Bounced::before,.lead.a-Error::before{background:var(--red)}
+.lead.a-Paused::before {background:var(--purple)}
+.when{font-variant-numeric:tabular-nums;font-weight:600}
+.when.due{color:var(--amber)}
+.when.late{color:var(--red)}
+
+/* ── variable picker ──────────────────────────── */
+/* A dropdown, not chips - with 20+ custom columns a chip wall is unusable,
+   and a native select gives you the phone's own scroll picker. */
+select.vpick{
+  margin-top:9px;font:13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--dim);padding:11px 13px;
+}
+
+/* ── preview ──────────────────────────────────── */
+.preview{
+  background:#fff;color:#111;border-radius:11px;padding:16px;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  word-break:break-word;max-height:52vh;overflow-y:auto;
+}
+.preview img{max-width:100%;height:auto}
+.pnote{
+  background:rgba(255,192,67,.09);border:1px solid rgba(255,192,67,.3);color:var(--amber);
+  border-radius:9px;padding:10px 12px;font-size:12.5px;margin-bottom:11px;
+}
+.seg{display:flex;gap:7px;margin-bottom:14px}
+.seg button{
+  flex:1;background:var(--surf2);border:1px solid var(--line);color:var(--dim);
+  border-radius:9px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;
+}
+.seg button.on{background:var(--surf3);border-color:var(--line2);color:var(--txt)}
+
+/* ── remove-column X ──────────────────────────── */
+label.lbl{display:flex;align-items:center;gap:8px}
+.xcol{
+  margin-left:auto;flex-shrink:0;width:21px;height:21px;border-radius:50%;padding:0;
+  background:var(--surf2);border:1px solid var(--line);color:var(--faint);
+  font-size:9.5px;display:grid;place-items:center;cursor:pointer;transition:all .12s;
+}
+.xcol:hover{color:var(--red);border-color:rgba(255,93,82,.45);background:rgba(255,93,82,.1)}
+.xcol:active{transform:scale(.88)}
+
+/* ── global busy state ────────────────────────── */
+/* One request in flight freezes every control, so a slow Apps Script call
+   cannot be double-submitted or interrupted by a tab switch mid-write. */
+#bar{
+  position:fixed;top:0;left:0;right:0;height:2px;z-index:80;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--amber),transparent);
+  background-size:40% 100%;background-repeat:no-repeat;
+  opacity:0;transition:opacity .15s;
+}
+body[data-busy] #bar{opacity:1;animation:slide 1.1s linear infinite}
+@keyframes slide{from{background-position:-40% 0}to{background-position:140% 0}}
+body[data-busy] button:not(.allow-busy),
+body[data-busy] input,
+body[data-busy] select,
+body[data-busy] textarea,
+body[data-busy] .card.tap,
+body[data-busy] .mini,
+body[data-busy] .col-hd{
+  pointer-events:none;
+}
+body[data-busy] nav,
+body[data-busy] main{opacity:.55;transition:opacity .15s}
+body[data-busy] .spin{opacity:1}
+
+/* ── nav toggle ───────────────────────────────── */
+.navtog{
+  width:28px;height:28px;border-radius:9px;flex-shrink:0;padding:0;
+  background:var(--surf2);border:1px solid var(--line);color:var(--dim);
+  font-size:13px;display:grid;place-items:center;cursor:pointer;
+}
+.navtog:active{transform:scale(.92)}
+nav{transition:transform .22s cubic-bezier(.32,.72,0,1)}
+body{transition:padding-left .22s cubic-bezier(.32,.72,0,1)}
+body.navhidden{padding-left:env(safe-area-inset-left,0px)}
+body.navhidden nav{transform:translateX(-102%)}
+body.navhidden .sheet{padding-left:env(safe-area-inset-left,0px)}
+
+/* ── lock screen ──────────────────────────────── */
+#lock{
+  position:fixed;inset:0;z-index:90;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;padding:24px;
+}
+#lock .box{width:100%;max-width:340px;text-align:center}
+#lock .mark{width:46px;height:46px;margin:0 auto 18px;font-size:19px;border-radius:14px}
+#lock h2{margin:0 0 6px;font-size:17px;letter-spacing:-.01em}
+#lock p{margin:0 0 22px;color:var(--faint);font-size:13px;line-height:1.5}
+#lock input{text-align:center;letter-spacing:.04em;margin-bottom:11px}
+
+/* ── settings controls ────────────────────────── */
+.t12{display:flex;gap:7px;align-items:center}
+.t12 select{flex:1;min-width:0}
+.t12 span{color:var(--faint);font-weight:700}
+.daypick{display:flex;gap:6px;flex-wrap:wrap}
+.day{
+  flex:1;min-width:44px;background:var(--surf2);border:1px solid var(--line);color:var(--faint);
+  border-radius:9px;padding:9px 4px;font-size:12px;font-weight:700;cursor:pointer;
+  font-family:inherit;transition:all .12s;
+}
+.day.on{background:var(--txt);border-color:var(--txt);color:#08080a}
+
+/* ── pipeline board ───────────────────────────── */
+.board{display:flex;gap:12px;overflow-x:auto;padding:2px 18px 12px;margin:0 -18px;
+       scrollbar-width:none;align-items:stretch}
+.col{
+  flex:0 0 280px;background:var(--surf);border:1px solid var(--line);
+  border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;
+  height:calc(100vh - 250px);min-height:320px;
+}
+.col-hd{padding:12px 13px;border-bottom:1px solid var(--line);cursor:pointer}
+.col-hd:active{background:var(--surf2)}
+.col-hd .t{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.col-hd b{font-size:13px;letter-spacing:-.01em}
+.col-hd .cnt{
+  margin-left:auto;font-size:10.5px;font-weight:700;color:var(--dim);
+  background:var(--surf3);border-radius:999px;padding:2px 8px;min-width:22px;text-align:center
+}
+.col-hd p{margin:0;font-size:11.5px;color:var(--faint);line-height:1.45;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.col-body{padding:10px;overflow-y:auto;flex:1;min-height:70px}
+.mini{
+  background:var(--surf2);border:1px solid var(--line);border-radius:10px;
+  padding:9px 10px;margin-bottom:7px;cursor:pointer;transition:transform .09s,border-color .13s;
+}
+.mini:active{transform:scale(.98);border-color:var(--line2)}
+.mini .n{font-size:13px;font-weight:600;letter-spacing:-.01em}
+.mini .d{font-size:11px;color:var(--faint);margin-top:3px;display:flex;align-items:center;gap:6px}
+.mini .sd{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.col.finished{opacity:.72}
+.colempty{color:var(--faint);font-size:11.5px;text-align:center;padding:14px 6px}
+
+/* ── tools ────────────────────────────────────── */
+.tool{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:var(--surf);border:1px solid var(--line);border-radius:12px;
+  padding:13px 14px;margin-bottom:9px;cursor:pointer;color:var(--txt);
+  font-family:inherit;transition:transform .09s,border-color .13s;
+}
+.tool:active{transform:scale(.99);border-color:var(--line2)}
+.tool[disabled]{opacity:.45}
+.tool .ic{
+  width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex-shrink:0;
+  background:var(--surf3);color:var(--dim);font-size:14px;
+}
+.tool.warn .ic{color:var(--amber)}
+.tool b{display:block;font-size:14px;font-weight:600}
+.tool span{display:block;font-size:11.5px;color:var(--faint);margin-top:2px;line-height:1.4}
+
+/* ── toast ────────────────────────────────────── */
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(24px + env(safe-area-inset-bottom,0px));
+  background:#fafafa;color:#08080a;padding:12px 18px;border-radius:11px;
+  font-size:13.5px;font-weight:650;z-index:60;max-width:88%;text-align:center;
+  box-shadow:0 10px 34px rgba(0,0,0,.6);animation:up .2s ease;
+}
+#toast.bad{background:var(--red);color:#fff}
+
+.spin{display:inline-block;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.loading{text-align:center;padding:46px;color:var(--faint);font-size:20px}
+</style>
+</head>
+<body>
+
+<div id="bar"></div>
+
+<header>
+  <div class="brand">
+    <button class="navtog allow-busy" id="navtog" title="Show or hide the menu">
+      <i class="fa-solid fa-bars"></i></button>
+    <div class="mark"><i class="fa-solid fa-bolt"></i></div>
+    <h1>Follow Up Machine</h1>
+    <span class="pill" id="pill"><span class="dot"></span><span id="pilltxt">···</span></span>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="s1">–</b><span>Sent today</span></div>
+    <div class="stat"><b id="s2">–</b><span>Active</span></div>
+    <div class="stat"><b id="s3">–</b><span>Replied</span></div>
+  </div>
+</header>
+
+<main id="view"><div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div></main>
+
+<nav>
+  <button data-tab="leads" class="on"><i class="fa-solid fa-users"></i>Leads</button>
+  <button data-tab="seq"><i class="fa-solid fa-diagram-project"></i>Pipeline</button>
+  <button data-tab="add"><i class="fa-solid fa-plus"></i>Add</button>
+  <button data-tab="log"><i class="fa-solid fa-receipt"></i>Log</button>
+  <button data-tab="tools"><i class="fa-solid fa-wrench"></i>Tools</button>
+  <button data-tab="settings"><i class="fa-solid fa-sliders"></i>Settings</button>
+</nav>
+
+<script>
+// ============================================================
+// CONFIG
+//   Apps Script hosting -> leave both empty
+//   Cloudflare hosting  -> fill both in
+// ============================================================
+var API_URL   = '';
+var API_TOKEN = '';
+
+// ============================================================
+// API adapter
+// ============================================================
+var NATIVE = (typeof google !== 'undefined' && google.script && google.script.run);
+
+// ── token store (remote mode only) ──────────────────────────
+// In Apps Script mode Google's own login is the lock and none of this runs.
+function getToken(){
+  if (API_TOKEN) return API_TOKEN;                 // hardcoded still works
+  try { return localStorage.getItem('fum_token') || ''; } catch(e){ return ''; }
+}
+function setToken(t){ try{ localStorage.setItem('fum_token', t); }catch(e){} }
+function clearToken(){ try{ localStorage.removeItem('fum_token'); }catch(e){} }
+
+// ── global busy state ───────────────────────────────────────
+// Every in-flight request bumps a counter; while it is above zero the whole
+// UI is frozen and the top bar animates. An Apps Script round trip is 1-3s,
+// which is more than long enough to double-tap a Save or switch tabs mid-write.
+var INFLIGHT = 0;
+function busyStart(){
+  INFLIGHT++;
+  document.body.dataset.busy = '1';
+}
+function busyEnd(){
+  INFLIGHT = Math.max(0, INFLIGHT - 1);
+  if (INFLIGHT === 0) delete document.body.dataset.busy;
+}
+
+function api(fn, args){
+  args = args || [];
+  busyStart();
+  return new Promise(function(resolve, reject){
+    // Never leave the UI frozen because a call hung. Apps Script has its own
+    // 6-minute cap, but a dead network would otherwise wedge us forever.
+    var done = false;
+    var finish = function(f){ return function(v){
+      if (done) return; done = true; busyEnd(); f(v);
+    };};
+    var ok = finish(resolve), no = finish(reject);
+    setTimeout(function(){
+      if (!done) no(new Error('That took too long and was given up on. Try again.'));
+    }, 90000);
+
+    if (NATIVE){
+      google.script.run
+        .withSuccessHandler(ok)
+        .withFailureHandler(function(e){ no(new Error(e && e.message ? e.message : String(e))); })
+        [fn].apply(null, args);
+      return;
+    }
+    if (!API_URL){
+      no(new Error('API_URL is empty. Open this from the Apps Script /exec URL, or fill in API_URL at the top of this file.'));
+      return;
+    }
+    fetch(API_URL, {
+      method:'POST',
+      // text/plain avoids a CORS preflight, which Apps Script cannot answer
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token:getToken(), fn:fn, args:args })
+    })
+    .then(function(r){ return r.text(); })
+    .then(function(txt){
+      var j;
+      try { j = JSON.parse(txt); }
+      catch(e){
+        // The usual cause: the deployment is still "Only myself", so Google
+        // served a login page instead of our JSON.
+        if (txt.indexOf('<!DOCTYPE') !== -1 || txt.indexOf('accounts.google') !== -1){
+          throw new Error('Got a Google login page, not data. Redeploy the web app with "Who has access: Anyone".');
+        }
+        throw new Error('Unreadable response from the server.');
+      }
+      if (!j.ok){
+        // A rejected token means the saved password is wrong or was changed.
+        if (/unauthor/i.test(j.error||'')){
+          clearToken();
+          setTimeout(showLock, 60);
+        }
+        throw new Error(j.error || 'Server error');
+      }
+      return j.data;
+    })
+    .then(ok)
+    .catch(function(e){ no(e instanceof Error ? e : new Error(String(e))); });
+  });
+}
+
+// ============================================================
+// helpers
+// ============================================================
+var $ = function(s){ return document.querySelector(s); };
+var view = function(){ return $('#view'); };
+
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function toast(msg, bad){
+  var old = $('#toast'); if (old) old.remove();
+  var t = document.createElement('div');
+  t.id='toast'; t.textContent=msg; if(bad) t.className='bad';
+  document.body.appendChild(t);
+  setTimeout(function(){ if(t.parentNode) t.remove(); }, bad ? 4600 : 2400);
+}
+function busy(){ view().innerHTML='<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>'; }
+function fail(e){ view().innerHTML = nothing('triangle-exclamation','Something went wrong', e.message); }
+function nothing(icon, title, sub){
+  return '<div class="empty"><i class="fa-solid fa-'+icon+'"></i><b>'+esc(title)+'</b>'+
+         (sub ? '<div class="tiny" style="max-width:300px;margin:0 auto">'+esc(sub)+'</div>' : '')+'</div>';
+}
+function chip(status){
+  return '<span class="st st-'+esc(status||'Done')+'"><span class="dot"></span>'+esc(status)+'</span>';
+}
+/** "today" / "in 3d" / "2d overdue" - far easier to scan than a raw date. */
+function rel(dateStr){
+  if(!dateStr) return {txt:'',cls:''};
+  var today = STATS ? STATS.today : '';
+  if(!today) return {txt:dateStr,cls:''};
+  if(dateStr === today) return {txt:'today',cls:'due'};
+  var a=new Date(dateStr+'T00:00:00'), b=new Date(today+'T00:00:00');
+  if(isNaN(a)||isNaN(b)) return {txt:dateStr,cls:''};
+  var d=Math.round((a-b)/86400000);
+  if(d<0)  return {txt:Math.abs(d)+'d overdue',cls:'late'};
+  if(d===1)return {txt:'tomorrow',cls:''};
+  return {txt:'in '+d+'d',cls:''};
+}
+function closeSheet(){ var o=$('#ov'); if(o) o.remove(); }
+function openSheet(title, inner){
+  closeSheet();
+  var d = document.createElement('div');
+  d.className='sheet'; d.id='ov';
+  d.innerHTML = '<div class="sheet-in"><div class="grab"></div>'+
+    '<div class="sheet-hd"><h3>'+esc(title)+'</h3>'+
+    '<button class="x" id="ovx"><i class="fa-solid fa-xmark"></i></button></div>'+inner+'</div>';
+  document.body.appendChild(d);
+  $('#ovx').onclick = closeSheet;
+  d.onclick = function(e){ if(e.target === d) closeSheet(); };
+  return d;
+}
+
+// ============================================================
+// state
+// ============================================================
+var LEADS=null, SEQS=null, FOUND=null, LOOKUP='', CURSEQ=null;
+var STATS=null, VARS=null, LFILTER='all';
+
+// ============================================================
+// header
+// ============================================================
+function refreshHeader(){
+  api('uiGetStats').then(function(s){
+    STATS = s;
+    $('#s1').textContent = s.sendsToday+'/'+s.maxSends;
+    $('#s2').textContent = s.counts.Active;
+    $('#s3').textContent = s.counts.Replied;
+    var p=$('#pill'), t=$('#pilltxt');
+    if (s.paused)            { t.textContent='Paused';  p.className='pill pause'; }
+    else if (s.chainRunning) { t.textContent='Running'; p.className='pill run';   }
+    else                     { t.textContent='Idle';    p.className='pill on';    }
+  }).catch(function(e){ $('#pilltxt').textContent='Offline'; console.error(e); });
+}
+
+// ============================================================
+// TAB: leads
+// ============================================================
+function renderLeads(){
+  if (!LEADS){ busy(); api('uiGetLeads').then(function(d){ LEADS=d; renderLeads(); }).catch(fail); return; }
+  if (!LEADS.length){ view().innerHTML = nothing('users','No leads yet','Use the Add tab to enroll your first one.'); return; }
+
+  var GROUP={Error:'issues',Bounced:'issues',OOO:'issues',
+             Active:'active',Replied:'replied',Paused:'done',Done:'done'};
+  var FILTERS=[
+    {k:'all',    label:'All'},
+    {k:'active', label:'Active'},
+    {k:'issues', label:'Needs you'},
+    {k:'replied',label:'Replied'},
+    {k:'done',   label:'Done'}
+  ];
+  var counts={all:LEADS.length,active:0,issues:0,replied:0,done:0};
+  LEADS.forEach(function(l){ var g=GROUP[l.status]; if(g) counts[g]++; });
+
+  var order={Active:0,Error:1,OOO:2,Bounced:3,Replied:4,Paused:5,Done:6};
+  var list=LEADS.filter(function(l){ return LFILTER==='all' || GROUP[l.status]===LFILTER; })
+    .sort(function(a,b){
+      var d=(order[a.status]===undefined?9:order[a.status])-(order[b.status]===undefined?9:order[b.status]);
+      return d!==0?d:String(a.nextSendDate).localeCompare(String(b.nextSendDate));
+    });
+
+  var chips=FILTERS.filter(function(f){ return f.k==='all'||counts[f.k]; }).map(function(f){
+    return '<button class="chip'+(LFILTER===f.k?' on':'')+'" data-f="'+f.k+'">'+
+           f.label+'<span class="n">'+counts[f.k]+'</span></button>';
+  }).join('');
+
+  var body = list.length ? list.map(function(l,i){
+    var r=rel(l.nextSendDate);
+    var showWhen = (l.status==='Active' && r.txt);
+    return '<div class="card tap lead a-'+esc(l.status)+'" data-lead="'+i+'">'+
+      '<div class="row"><div class="grow">'+
+        '<div class="nm ell">'+esc(l.leadName||l.leadEmail)+'</div>'+
+        '<div class="sub ell">'+esc(l.leadName?l.leadEmail:(l.sequenceName||'no sequence set'))+'</div>'+
+      '</div>'+chip(l.status)+'</div>'+
+      '<div class="meta">'+
+        '<span><i class="fa-solid fa-list-ol"></i>Step '+l.step+(l.totalSteps?' / '+l.totalSteps:'')+'</span>'+
+        (l.sequenceName?'<span><i class="fa-solid fa-layer-group"></i>'+esc(l.sequenceName)+'</span>':'')+
+        (showWhen?'<span class="when '+r.cls+'"><i class="fa-regular fa-clock"></i>'+esc(r.txt)+'</span>':'')+
+      '</div></div>';
+  }).join('') : nothing('filter','Nothing here','No leads match this filter.');
+
+  view().innerHTML='<div class="chips">'+chips+'</div>'+body;
+
+  view().querySelectorAll('[data-f]').forEach(function(b){
+    b.onclick=function(){ LFILTER=b.dataset.f; renderLeads(); };
+  });
+  view().querySelectorAll('[data-lead]').forEach(function(el){
+    el.onclick=function(){ openLead(list[+el.dataset.lead]); };
+  });
+}
+
+function openLead(l){
+  openSheet(l.leadName||l.leadEmail,
+    '<div class="loading" id="lrow"><i class="fa-solid fa-circle-notch spin"></i></div>');
+
+  api('uiGetLeadRow',[l.threadId]).then(function(d){
+    var STATUSES=['Active','Paused','Replied','OOO','Bounced','Done','Error'];
+    var seqNames=(SEQS||[]).map(function(x){ return x.name; });
+
+    var fields=d.cells.map(function(c){
+      var id='f_'+c.col, v=esc(c.value);
+      var input;
+      if(c.readonly){
+        input='<input id="'+id+'" value="'+v+'" disabled>';
+      } else if(c.kind==='status'){
+        input='<select id="'+id+'">'+STATUSES.map(function(x){
+          return '<option'+(x===c.value?' selected':'')+'>'+x+'</option>'; }).join('')+'</select>';
+      } else if(c.kind==='sequence' && seqNames.length){
+        var known=seqNames.indexOf(c.value)!==-1;
+        input='<select id="'+id+'">'+
+          (known?'':'<option selected value="'+v+'">'+(v||'— none —')+'</option>')+
+          seqNames.map(function(x){
+            return '<option'+(x===c.value?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>';
+      } else if(c.kind==='bool'){
+        input='<select id="'+id+'"><option'+(/true/i.test(c.value)?' selected':'')+'>TRUE</option>'+
+              '<option'+(/true/i.test(c.value)?'':' selected')+'>FALSE</option></select>';
+      } else if(c.kind==='date'){
+        input='<input id="'+id+'" type="date" value="'+v+'">';
+      } else if(c.kind==='number'){
+        input='<input id="'+id+'" type="number" inputmode="numeric" value="'+v+'">';
+      } else if(c.kind==='long'){
+        input='<textarea id="'+id+'" style="min-height:80px">'+v+'</textarea>';
+      } else {
+        input='<input id="'+id+'" value="'+v+'">';
+      }
+      // Columns past `notes` are yours - offer a remove control on those only.
+      var mine = c.col > 13;
+      var lbl = '<label class="lbl">'+esc(c.name)+
+        (mine ? '<button class="xcol" data-drop="'+esc(c.name)+'" '+
+                'title="Remove this column"><i class="fa-solid fa-xmark"></i></button>' : '')+
+        '</label>';
+      return '<div class="field">'+lbl+input+'</div>';
+    }).join('');
+
+    // A replied lead needs more than a status change to start sending again -
+    // the backend has to stamp a cutoff or the reply check undoes it. Give that
+    // its own button rather than making it look like an ordinary field edit.
+    var scell = d.cells.filter(function(x){ return x.kind === 'status'; })[0];
+    var resumeUI = (scell && String(scell.value).trim() === 'Replied')
+      ? '<div class="rbox">'+
+          '<p>This lead replied, so the sequence stopped. Resuming puts them back '+
+          'into sending and marks that reply as handled.</p>'+
+          '<select id="lrseq">'+
+            '<option value="">Carry on where they stopped</option>'+
+            seqNames.map(function(x){
+              return '<option value="'+esc(x)+'">Start &quot;'+esc(x)+'&quot; from step 1</option>';
+            }).join('')+
+          '</select>'+
+          '<button class="btn" id="lresume">'+
+            '<i class="fa-solid fa-rotate-right"></i>Resume sending</button>'+
+        '</div>'
+      : '';
+
+    // Spell out what the number means - "Row 2" alone reads as "the 2nd lead"
+    // when it is actually the sheet row, and row 2 IS the first lead.
+    var pos = LEADS ? (LEADS.map(function(x){return x.threadId;}).indexOf(l.threadId) + 1) : 0;
+    $('#lrow').outerHTML =
+      '<p class="tiny" style="margin:-4px 0 14px">Sheet row '+d.row+
+        (pos ? ' · lead '+pos+' of '+LEADS.length : '')+
+        ' · '+d.cells.length+' columns</p>'+
+      resumeUI+
+      fields+
+      '<button class="btn ghost" id="laddcol" style="margin-bottom:9px">'+
+        '<i class="fa-solid fa-plus"></i>Add a column / variable</button>'+
+      '<button class="btn" id="lsave"><i class="fa-solid fa-check"></i>Save changes</button>';
+
+    $('#laddcol').onclick = function(){ openAddColumn(l); };
+
+    if ($('#lresume')) {
+      $('#lresume').onclick = function(){
+        var seq = $('#lrseq').value;
+        var b = $('#lresume');
+        b.disabled = true;
+        b.innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
+        api('uiResumeLead', [l.threadId, seq]).then(function(rows){
+          LEADS = rows; closeSheet(); renderLeads(); refreshHeader();
+          toast(seq ? 'Resumed on "'+seq+'"' : 'Resumed where they stopped');
+        }).catch(function(e){
+          b.disabled = false;
+          b.innerHTML = '<i class="fa-solid fa-rotate-right"></i>Resume sending';
+          toast(e.message);
+        });
+      };
+    }
+
+    $('#ov').querySelectorAll('[data-drop]').forEach(function(b){
+      b.onclick = function(ev){ ev.preventDefault(); openDropColumn(l, b.dataset.drop); };
+    });
+
+    $('#lsave').onclick=function(){
+      var updates={}, n=0;
+      d.cells.forEach(function(c){
+        if(c.readonly) return;
+        var el=$('#f_'+c.col); if(!el) return;
+        if(String(el.value)!==String(c.value)){ updates[c.name]=el.value; n++; }
+      });
+      if(!n){ toast('Nothing changed'); return; }
+      $('#lsave').disabled=true;
+      $('#lsave').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+      api('uiSaveLeadRow',[l.threadId,updates]).then(function(rows){
+        LEADS=rows; closeSheet(); renderLeads(); refreshHeader();
+        toast('Saved '+n+' field'+(n>1?'s':''));
+      }).catch(function(e){
+        $('#lsave').disabled=false;
+        $('#lsave').innerHTML='<i class="fa-solid fa-check"></i>Save changes';
+        toast(e.message,true);
+      });
+    };
+  }).catch(function(e){
+    var el=$('#lrow'); if(el) el.outerHTML=nothing('triangle-exclamation','Could not load',e.message);
+  });
+}
+
+/**
+ * Adds a new column to ActiveFollowUps. Any header past `notes` automatically
+ * becomes a {{variable}}, so this is also how you add a merge field.
+ */
+function openAddColumn(lead){
+  openSheet('Add a column',
+    '<p class="muted" style="margin-top:0">Adds a column to every lead and gives you a new '+
+    'variable to use in messages.</p>'+
+    '<div class="field"><label>Column name</label>'+
+      '<input id="cn" placeholder="companyName" autocapitalize="off" spellcheck="false">'+
+      '<p class="tiny" id="cprev" style="margin:8px 0 0">It becomes <b>{{companyName}}</b> '+
+      'in your sequence messages.</p></div>'+
+    '<button class="btn" id="cok"><i class="fa-solid fa-check"></i>Add column</button>');
+
+  var inp = $('#cn');
+  inp.oninput = function(){
+    var v = inp.value.trim().replace(/[^A-Za-z0-9_]/g,'') || 'companyName';
+    $('#cprev').innerHTML = 'It becomes <b>{{'+esc(v)+'}}</b> in your sequence messages.';
+  };
+
+  $('#cok').onclick = function(){
+    var n = inp.value.trim();
+    if(!n){ toast('Enter a column name', true); return; }
+    $('#cok').disabled = true;
+    $('#cok').innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiAddLeadColumn',[n]).then(function(r){
+      closeSheet();
+      // refresh the variable chips and reopen the lead so the new field shows
+      api('uiGetVariables').then(function(v){ VARS = v; }).catch(function(){});
+      api('uiGetLeads').then(function(rows){
+        LEADS = rows;
+        var again = rows.filter(function(x){ return x.threadId === lead.threadId; })[0];
+        if(again) openLead(again); else renderLeads();
+      }).catch(function(){ renderLeads(); });
+      toast('Added ' + r.token);
+    }).catch(function(e){
+      $('#cok').disabled = false;
+      $('#cok').innerHTML = '<i class="fa-solid fa-check"></i>Add column';
+      toast(e.message, true);
+    });
+  };
+}
+
+/**
+ * Removes a column you added. The server refuses for built-in columns and for
+ * any token still used in a sequence, so this only has to ask once.
+ */
+function openDropColumn(lead, name){
+  openSheet('Remove ' + name,
+    '<p class="muted" style="margin-top:0">Deletes the <b>'+esc(name)+'</b> column from '+
+    '<b>every</b> lead, and <b>{{'+esc(name)+'}}</b> stops being available in messages.</p>'+
+    '<p class="tiny">If any sequence still uses that token this will be refused, and it '+
+    'will tell you where - a lead must never be emailed a raw {{token}}.</p>'+
+    '<button class="btn danger" id="rok" style="margin-top:8px">'+
+      '<i class="fa-solid fa-trash"></i>Remove '+esc(name)+'</button>'+
+    '<button class="btn ghost" id="rno" style="margin-top:9px">Cancel</button>');
+
+  $('#rno').onclick = closeSheet;
+  var armed = false;
+  $('#rok').onclick = function(){
+    if(!armed){
+      armed = true;
+      $('#rok').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>Tap again to remove';
+      setTimeout(function(){ armed = false;
+        if($('#rok')) $('#rok').innerHTML = '<i class="fa-solid fa-trash"></i>Remove '+esc(name); },3200);
+      return;
+    }
+    $('#rok').disabled = true;
+    $('#rok').innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiDeleteLeadColumn',[name]).then(function(){
+      closeSheet();
+      api('uiGetVariables').then(function(v){ VARS = v; }).catch(function(){});
+      api('uiGetLeads').then(function(rows){
+        LEADS = rows;
+        var again = rows.filter(function(x){ return x.threadId===lead.threadId; })[0];
+        if(again) openLead(again); else renderLeads();
+      }).catch(function(){ renderLeads(); });
+      toast('Removed ' + name);
+    }).catch(function(e){
+      $('#rok').disabled = false;
+      $('#rok').innerHTML = '<i class="fa-solid fa-trash"></i>Remove '+esc(name);
+      toast(e.message, true);
+    });
+  };
+}
+
+// ============================================================
+// TAB: add lead
+// ============================================================
+function renderAdd(){
+  view().innerHTML =
+    '<div class="field"><label>Lead email</label>'+
+      '<input id="q" type="email" inputmode="email" autocapitalize="off" autocorrect="off" '+
+             'spellcheck="false" placeholder="name@company.com" value="'+esc(LOOKUP)+'"></div>'+
+    '<button class="btn" id="go"><i class="fa-solid fa-magnifying-glass"></i>Find threads</button>'+
+    '<div id="res"></div>';
+  $('#go').onclick=doSearch;
+  $('#q').onkeydown=function(e){ if(e.key==='Enter') doSearch(); };
+  if (FOUND) paintResults();
+}
+
+function doSearch(){
+  var q=$('#q').value.trim();
+  if(!q){ toast('Enter an email address',true); return; }
+  LOOKUP=q; FOUND=null;
+  $('#res').innerHTML='<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>';
+  $('#go').disabled=true;
+  api('uiSearchThreads',[q]).then(function(d){ FOUND=d; $('#go').disabled=false; paintResults(); })
+   .catch(function(e){ $('#go').disabled=false; $('#res').innerHTML=nothing('triangle-exclamation','Search failed',e.message); });
+}
+
+function paintResults(){
+  if(!FOUND.length){ $('#res').innerHTML=nothing('inbox','No threads found','Nothing in Gmail with '+LOOKUP); return; }
+  $('#res').innerHTML='<h2 class="sec">'+FOUND.length+' thread'+(FOUND.length>1?'s':'')+'</h2>'+
+    FOUND.map(function(t,i){
+      return '<div class="card'+(t.alreadyIn?'':' tap')+'" data-th="'+i+'">'+
+        '<div class="row"><div class="grow"><div class="nm ell">'+esc(t.subject||'(no subject)')+'</div></div>'+
+        (t.alreadyIn?chip(t.alreadyIn)
+                    :'<i class="fa-solid fa-chevron-right" style="color:var(--faint);font-size:12px"></i>')+
+        '</div>'+
+        '<div class="sub" style="white-space:normal">'+esc(t.body.substring(0,140))+'…</div>'+
+        '<div class="meta"><span><i class="fa-regular fa-clock"></i>'+esc(t.date)+'</span>'+
+        '<span><i class="fa-regular fa-envelope"></i>'+t.msgCount+' msg</span></div></div>';
+    }).join('');
+  $('#res').querySelectorAll('[data-th]').forEach(function(el){
+    var t=FOUND[+el.dataset.th];
+    if(t.alreadyIn) return;
+    el.onclick=function(){ openEnroll(t); };
+  });
+}
+
+function openEnroll(t){
+  var opts=(SEQS||[]).map(function(s){
+    return '<option value="'+esc(s.name)+'">'+esc(s.name)+' — '+s.steps.length+' steps</option>'; }).join('');
+  openSheet('Enroll lead',
+    '<div class="kv"><span>Thread</span><div>'+esc(t.subject||'(no subject)')+'</div></div>'+
+    '<div class="kv" style="margin-bottom:18px"><span>Email</span><div>'+esc(LOOKUP)+'</div></div>'+
+    '<div class="field"><label>Lead name</label><input id="en" placeholder="John Smith">'+
+      '<p class="tiny" style="margin:7px 0 0">Used by {{firstName}}. Leave blank only if your messages never use it.</p></div>'+
+    '<div class="field"><label>Sequence</label>'+
+      (opts?'<select id="es"><option value="">— pick one —</option>'+opts+'</select>'
+           :'<input id="es" placeholder="sequence name">')+'</div>'+
+    '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Enroll</button>');
+
+  $('#ok').onclick=function(){
+    var nm=$('#en').value.trim(), sq=$('#es').value.trim();
+    if(!sq){ toast('Pick a sequence',true); return; }
+    $('#ok').disabled=true; $('#ok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiEnrollLead',[t.threadId,LOOKUP,nm,sq,0]).then(function(d){
+      LEADS=d; closeSheet(); t.alreadyIn='Active'; paintResults(); refreshHeader();
+      // The first send is today when today's window is still open, so read the
+      // real date back off the enrolled lead instead of assuming "tomorrow".
+      var made = d.filter(function(x){ return x.threadId===t.threadId; })[0];
+      var when = made ? rel(made.nextSendDate).txt : '';
+      toast('Enrolled' + (when ? ' — first send ' + when : ''));
+    }).catch(function(e){
+      $('#ok').disabled=false; $('#ok').innerHTML='<i class="fa-solid fa-check"></i>Enroll';
+      toast(e.message,true);
+    });
+  };
+}
+
+// ============================================================
+// TAB: steps  (chips + editing)
+// ============================================================
+function renderSeq(){
+  if(!SEQS){ busy(); loadSeqs().then(renderSeq).catch(fail); return; }
+  if(!LEADS){ busy(); api('uiGetLeads').then(function(d){ LEADS=d; renderSeq(); }).catch(fail); return; }
+
+  if(!CURSEQ || !SEQS.some(function(s){ return s.name===CURSEQ; })){
+    CURSEQ = SEQS.length ? SEQS[0].name : null;
+  }
+
+  var chips = SEQS.map(function(s){
+    return '<button class="chip'+(s.name===CURSEQ?' on':'')+'" data-seq="'+esc(s.name)+'">'+
+           esc(s.name)+'<span class="n">'+s.steps.length+'</span></button>';
+  }).join('') + '<button class="chip new" id="newseq"><i class="fa-solid fa-plus"></i> New</button>';
+
+  var cur = SEQS.filter(function(s){ return s.name===CURSEQ; })[0];
+
+  var body;
+  if(!cur){
+    body = nothing('layer-group','No sequences yet','Tap New to create your first one.');
+  } else {
+    // Leads on this sequence, bucketed by which step goes out NEXT.
+    // sequenceStep is how many have been SENT, so step N's column holds
+    // leads whose sequenceStep is N-1. Finished leads get their own column.
+    var LIVE = {Active:1, OOO:1, Paused:1};
+    var mine = LEADS.filter(function(l){ return l.sequenceName === cur.name; });
+    var done = mine.filter(function(l){ return !LIVE[l.status]; });
+
+    var cols = cur.steps.map(function(st){
+      return {
+        step:  st,
+        leads: mine.filter(function(l){ return LIVE[l.status] && l.step === st.n - 1; })
+      };
+    });
+
+    var card = function(l){
+      var r = rel(l.nextSendDate);
+      var tone = {Active:'--blue',Replied:'--green',OOO:'--amber',Bounced:'--red',
+                  Error:'--red',Paused:'--purple',Done:'--gray'}[l.status] || '--gray';
+      return '<div class="mini" data-mini="'+esc(l.threadId)+'">'+
+        '<div class="n ell">'+esc(l.leadName || l.leadEmail)+'</div>'+
+        '<div class="d"><span class="sd" style="background:var('+tone+')"></span>'+
+          esc(l.status)+(l.status==='Active'&&r.txt ? ' · '+esc(r.txt) : '')+'</div>'+
+      '</div>';
+    };
+
+    body = '<div class="board">'+
+      cols.map(function(col){
+        return '<div class="col">'+
+          '<div class="col-hd" data-step="'+col.step.n+'">'+
+            '<div class="t"><b>Step '+col.step.n+'</b>'+
+              '<span class="st st-Done"><span class="dot"></span>'+col.step.awaitDays+'d</span>'+
+              '<span class="cnt">'+col.leads.length+'</span></div>'+
+            '<p>'+esc(col.step.message)+'</p>'+
+          '</div>'+
+          '<div class="col-body">'+
+            (col.leads.length ? col.leads.map(card).join('')
+                              : '<div class="colempty">No one here</div>')+
+          '</div></div>';
+      }).join('') +
+      '<div class="col finished">'+
+        '<div class="col-hd" style="cursor:default">'+
+          '<div class="t"><b>Finished</b><span class="cnt">'+done.length+'</span></div>'+
+          '<p>Replied, done, bounced or errored</p></div>'+
+        '<div class="col-body">'+
+          (done.length ? done.map(card).join('') : '<div class="colempty">Nobody yet</div>')+
+        '</div></div>'+
+      '<div class="col" style="flex:0 0 120px;border-style:dashed">'+
+        '<div class="col-hd" id="addstep" style="text-align:center">'+
+          '<div class="t" style="justify-content:center"><b style="color:var(--dim)">'+
+          '<i class="fa-solid fa-plus"></i> Step '+(cur.steps.length+1)+'</b></div></div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  view().innerHTML = '<div class="chips">'+chips+'</div>' + body +
+    (cur ? '<p class="tiny" style="margin:14px 0 14px">Tap a column header to edit that step. '+
+           'Tap a lead to open it. Columns show who receives that step NEXT.</p>'+
+           '<button class="btn danger" id="delseq">'+
+           '<i class="fa-solid fa-trash"></i>Delete "'+esc(cur.name)+'"</button>' : '');
+
+  view().querySelectorAll('[data-seq]').forEach(function(b){
+    b.onclick=function(){ CURSEQ=b.dataset.seq; renderSeq(); };
+  });
+  $('#newseq').onclick = openNewSeq;
+  if(cur){
+    $('#delseq').onclick = function(){ openDelSeq(cur); };
+    var add = $('#addstep');
+    if(add) add.onclick = function(){ openStep(cur, null); };
+    view().querySelectorAll('[data-step]').forEach(function(el){
+      el.onclick = function(){
+        var n = +el.dataset.step;
+        openStep(cur, cur.steps.filter(function(s){ return s.n===n; })[0]);
+      };
+    });
+    view().querySelectorAll('[data-mini]').forEach(function(el){
+      el.onclick = function(){
+        var l = LEADS.filter(function(x){ return x.threadId===el.dataset.mini; })[0];
+        if(l) openLead(l);
+      };
+    });
+  }
+}
+
+function openNewSeq(){
+  openSheet('New sequence',
+    '<div class="field"><label>Name</label>'+
+      '<input id="sn" placeholder="loomFollowUp" autocapitalize="off" spellcheck="false">'+
+      '<p class="tiny" style="margin:7px 0 0">This exact name goes in the sequenceName column. '+
+      'No spaces is easiest.</p></div>'+
+    '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Create</button>');
+  $('#ok').onclick=function(){
+    var n=$('#sn').value.trim();
+    if(!n){ toast('Enter a name',true); return; }
+    $('#ok').disabled=true; $('#ok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiAddSequence',[n]).then(function(d){
+      SEQS=d; CURSEQ=n; closeSheet(); renderSeq(); toast('Created '+n);
+    }).catch(function(e){
+      $('#ok').disabled=false; $('#ok').innerHTML='<i class="fa-solid fa-check"></i>Create';
+      toast(e.message,true);
+    });
+  };
+}
+
+function openDelSeq(seq){
+  openSheet('Delete sequence',
+    '<p class="muted" style="margin-top:0">This removes <b>'+esc(seq.name)+'</b> and its '+
+    seq.steps.length+' step'+(seq.steps.length===1?'':'s')+' from the Sequences sheet.</p>'+
+    '<p class="tiny">Leads that already finished keep their history. Leads still running it '+
+    'will block the delete — move them to another sequence first.</p>'+
+    '<button class="btn danger" id="dok" style="margin-top:8px">'+
+    '<i class="fa-solid fa-trash"></i>Delete '+esc(seq.name)+'</button>'+
+    '<button class="btn ghost" id="dno" style="margin-top:9px">Cancel</button>');
+  $('#dno').onclick=closeSheet;
+  var armed=false;
+  $('#dok').onclick=function(){
+    if(!armed){
+      armed=true;
+      $('#dok').innerHTML='<i class="fa-solid fa-triangle-exclamation"></i>Tap again to confirm';
+      setTimeout(function(){ armed=false;
+        if($('#dok')) $('#dok').innerHTML='<i class="fa-solid fa-trash"></i>Delete '+esc(seq.name); },3200);
+      return;
+    }
+    $('#dok').disabled=true; $('#dok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiDeleteSequence',[seq.name]).then(function(d){
+      SEQS=d; CURSEQ=null; closeSheet(); renderSeq(); toast('Deleted '+seq.name);
+    }).catch(function(e){
+      $('#dok').disabled=false;
+      $('#dok').innerHTML='<i class="fa-solid fa-trash"></i>Delete '+esc(seq.name);
+      toast(e.message,true);
+    });
+  };
+}
+
+function openStep(seq, step){
+  var isNew = !step;
+  var n = isNew ? seq.steps.length+1 : step.n;
+
+  var builtIn = (VARS||[]).filter(function(v){ return v.kind!=='custom'; });
+  var custom  = (VARS||[]).filter(function(v){ return v.kind==='custom'; });
+  var opt = function(v){ return '<option value="'+esc(v.token)+'">'+esc(v.token)+'</option>'; };
+  var vpick =
+    '<select class="vpick" id="vpick">'+
+      '<option value="">+ Insert a variable…</option>'+
+      (builtIn.length ? '<optgroup label="Built in">'+builtIn.map(opt).join('')+'</optgroup>' : '')+
+      (custom.length  ? '<optgroup label="Your columns ('+custom.length+')">'+
+                        custom.map(opt).join('')+'</optgroup>' : '')+
+      '<optgroup label="Other"><option value="[IMG 50%] ">[IMG 50%] &lt;drive link&gt;</option></optgroup>'+
+    '</select>';
+
+  openSheet((isNew?'Add step ':'Edit step ')+n,
+    '<div class="seg">'+
+      '<button class="on" data-pane="edit"><i class="fa-solid fa-pen"></i> Edit</button>'+
+      '<button data-pane="prev"'+(isNew?' disabled style="opacity:.35"':'')+'>'+
+        '<i class="fa-regular fa-eye"></i> Preview</button>'+
+    '</div>'+
+
+    '<div id="pane-edit">'+
+      '<div class="pair">'+
+        '<div class="field"><label>Wait days</label>'+
+          '<input id="ad" type="number" min="1" inputmode="numeric" value="'+(isNew?3:step.awaitDays)+'"></div>'+
+        '<div class="field"><label>Sequence</label><input value="'+esc(seq.name)+'" disabled></div>'+
+      '</div>'+
+      '<div class="field"><label>Message</label>'+
+        '<textarea id="ms" placeholder="Hey {{firstName}}, just following up…">'+
+        (isNew?'':esc(step.message))+'</textarea>'+
+        vpick+
+        '<p class="tiny" style="margin:9px 0 0">Picks drop in at your cursor.</p>'+
+      '</div>'+
+      '<button class="btn" id="ok"><i class="fa-solid fa-check"></i>Save step '+n+'</button>'+
+      (isNew?'':'<button class="btn danger" id="del" style="margin-top:9px">'+
+                '<i class="fa-solid fa-trash"></i>Delete step '+n+'</button>')+
+    '</div>'+
+
+    '<div id="pane-prev" hidden>'+
+      '<div class="field"><label>Show values from lead</label>'+
+        '<select id="pl"><option value="">— no lead, tokens stay visible —</option>'+
+        (LEADS||[]).map(function(l){
+          return '<option value="'+esc(l.threadId)+'">'+esc(l.leadName||l.leadEmail)+'</option>';
+        }).join('')+'</select></div>'+
+      '<div id="pbox"><div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div></div>'+
+      '<div class="field" style="margin-top:15px"><label>Send a test to</label>'+
+        '<input id="pe" type="email" inputmode="email" autocapitalize="off" spellcheck="false" '+
+               'placeholder="leave blank for your notificationEmail"></div>'+
+      '<button class="btn" id="ptest"><i class="fa-regular fa-paper-plane"></i>Send test email</button>'+
+      '<p class="tiny" style="margin-top:11px">Sends the real thing to you — no banner, image inline. '+
+      'Only the [TEST] subject prefix marks it.</p>'+
+    '</div>');
+
+  // The dropdown steals focus from the textarea, which loses the caret, so
+  // track the last position while you type and insert there.
+  var ta  = $('#ms');
+  var pos = { a: ta.value.length, z: ta.value.length };
+  ['keyup','click','input','select','focus'].forEach(function(ev){
+    ta.addEventListener(ev, function(){
+      pos.a = ta.selectionStart; pos.z = ta.selectionEnd;
+    });
+  });
+  $('#vpick').onchange = function(){
+    var tok = this.value;
+    this.value = '';
+    if(!tok) return;
+    ta.value = ta.value.slice(0, pos.a) + tok + ta.value.slice(pos.z);
+    pos.a = pos.z = pos.a + tok.length;
+    ta.focus();
+    try { ta.setSelectionRange(pos.a, pos.a); } catch(e){}
+  };
+
+  // pane switching
+  $('#ov').querySelectorAll('[data-pane]').forEach(function(b){
+    b.onclick=function(){
+      if(b.disabled) return;
+      $('#ov').querySelectorAll('[data-pane]').forEach(function(x){ x.classList.toggle('on', x===b); });
+      $('#pane-edit').hidden = b.dataset.pane!=='edit';
+      $('#pane-prev').hidden = b.dataset.pane!=='prev';
+      if(b.dataset.pane==='prev') loadPreview();
+    };
+  });
+
+  function loadPreview(){
+    var box=$('#pbox');
+    box.innerHTML='<div class="loading"><i class="fa-solid fa-circle-notch spin"></i></div>';
+    api('uiPreviewStep',[seq.name,n,$('#pl').value]).then(function(p){
+      box.innerHTML =
+        (p.note?'<div class="pnote"><i class="fa-solid fa-circle-info"></i> '+esc(p.note)+'</div>':'')+
+        (p.hasVars?'<div class="pnote"><i class="fa-solid fa-triangle-exclamation"></i> '+
+                   'Some {{tokens}} did not resolve — that column is empty for this lead.</div>':'')+
+        // html is escaped server-side before the <br> and <img> tags go in
+        '<div class="preview">'+p.html+'</div>';
+    }).catch(function(e){ box.innerHTML=nothing('triangle-exclamation','Preview failed',e.message); });
+  }
+  if(!isNew) $('#pl').onchange = loadPreview;
+
+  if(!isNew){
+    $('#ptest').onclick=function(){
+      var btn=$('#ptest');
+      btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-circle-notch spin"></i>Sending';
+      api('uiTestSendStep',[seq.name,n,$('#pl').value,$('#pe').value.trim()]).then(function(m){
+        btn.disabled=false; btn.innerHTML='<i class="fa-regular fa-paper-plane"></i>Send test email';
+        toast(m);
+      }).catch(function(e){
+        btn.disabled=false; btn.innerHTML='<i class="fa-regular fa-paper-plane"></i>Send test email';
+        toast(e.message,true);
+      });
+    };
+  }
+
+  $('#ok').onclick=function(){
+    var msg=$('#ms').value.trim();
+    if(!msg){ toast('Message cannot be empty',true); return; }
+    $('#ok').disabled=true; $('#ok').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>';
+    api('uiSaveStep',[seq.name,n,+$('#ad').value||1,msg]).then(function(d){
+      SEQS=d; closeSheet(); renderSeq(); toast('Step '+n+' saved');
+    }).catch(function(e){
+      $('#ok').disabled=false; $('#ok').innerHTML='<i class="fa-solid fa-check"></i>Save step '+n;
+      toast(e.message,true);
+    });
+  };
+
+  if(!isNew){
+    var armed=false;
+    $('#del').onclick=function(){
+      if(!armed){
+        armed=true;
+        $('#del').innerHTML='<i class="fa-solid fa-triangle-exclamation"></i>Tap again to delete';
+        setTimeout(function(){ armed=false;
+          if($('#del')) $('#del').innerHTML='<i class="fa-solid fa-trash"></i>Delete step '+n; },3200);
+        return;
+      }
+      $('#del').disabled=true; $('#ok').disabled=true;
+      api('uiDeleteStep',[seq.name,n]).then(function(d){
+        SEQS=d; closeSheet(); renderSeq(); toast('Step '+n+' deleted');
+      }).catch(function(e){ $('#del').disabled=false; $('#ok').disabled=false; toast(e.message,true); });
+    };
+  }
+}
+
+function loadSeqs(){ return api('uiGetSequences').then(function(d){ SEQS=d; return d; }); }
+
+// ============================================================
+// TAB: log
+// ============================================================
+function renderLog(){
+  busy();
+  api('uiGetLog',[50]).then(function(rows){
+    if(!rows.length){ view().innerHTML=nothing('receipt','Nothing sent yet','The log fills up once the chain runs.'); return; }
+    var tone=function(r){
+      if(r==='Sent') return 'st-Replied';
+      if(r==='Failed'||r==='Sent-WriteError') return 'st-Error';
+      return 'st-Done';
+    };
+    view().innerHTML=rows.map(function(r){
+      return '<div class="card"><div class="row">'+
+        '<div class="grow"><div class="nm ell" style="font-size:14px">'+esc(r.email)+'</div></div>'+
+        '<span class="st '+tone(r.result)+'"><span class="dot"></span>'+
+          esc(r.result.replace('Skipped - ',''))+'</span></div>'+
+        (r.preview?'<div class="sub ell">'+esc(r.preview)+'</div>':'')+
+        '<div class="meta"><span><i class="fa-regular fa-clock"></i>'+esc(r.time)+'</span>'+
+        (r.sequence?'<span><i class="fa-solid fa-layer-group"></i>'+esc(r.sequence)+' · step '+esc(r.step)+'</span>':'')+
+        '</div></div>';
+    }).join('');
+  }).catch(fail);
+}
+
+// ============================================================
+// TAB: tools
+// ============================================================
+function renderTools(){
+  var ACTIONS = [
+    { k:'startDailyRun', i:'play', t:'Start the chain',
+      d:'Runs all the pre-flight checks, then works through everything due today.' },
+    { k:'manualProcessOneLead', i:'forward-step', t:'Process one lead',
+      d:'Handles a single due lead right now. This can send a real email.', warn:1 },
+    { k:'sendNotificationEmail', i:'envelope', t:'Send summary now',
+      d:'Emails the usual summary to your notificationEmail.' },
+    { k:'cleanUpStuckTriggers', i:'broom', t:'Clean up stuck triggers',
+      d:'Clears leftover triggers and releases the chain lock. Safe any time.' },
+    { k:'createTriggers', i:'clock-rotate-left', t:'Recreate triggers',
+      d:'Rebuilds the 8am daily, Monday summary and enroll watcher.', warn:1 },
+    { k:'clearParked', i:'rotate-left', t:'Clear today\'s parked list',
+      d:'Forgets which leads already went out today. Only for testing - it can '+
+        'let a lead be emailed twice in one day.', warn:1 },
+    { k:'clearQuotaStop', i:'gauge-high', t:'Clear the quota stop',
+      d:'Lets the chain run again after a Gmail quota block.' },
+    { k:'clearAuthLock', i:'lock-open', t:'Clear the sign-in lockout',
+      d:'Ten wrong passwords locks the endpoint for 15 minutes. This lifts it early.',
+      remote:1 }
+  ].filter(function(a){ return !a.remote || !NATIVE; });
+
+  view().innerHTML =
+    '<h2 class="sec">Run something</h2>' +
+    ACTIONS.map(function(a){
+      return '<button class="tool'+(a.warn?' warn':'')+'" data-act="'+a.k+'">'+
+        '<span class="ic"><i class="fa-solid fa-'+a.i+'"></i></span>'+
+        '<span class="grow"><b>'+esc(a.t)+'</b><span>'+esc(a.d)+'</span></span>'+
+        '<i class="fa-solid fa-chevron-right" style="color:var(--faint);font-size:12px"></i>'+
+      '</button>';
+    }).join('') +
+    '<p class="tiny" style="margin-top:14px">Amber ones either send mail or change '+
+    'how the system runs, so they ask twice.</p>'+
+    (NATIVE ? '' :
+      '<h2 class="sec">This device</h2>'+
+      '<button class="tool" id="signout">'+
+        '<span class="ic"><i class="fa-solid fa-right-from-bracket"></i></span>'+
+        '<span class="grow"><b>Sign out</b><span>Forgets the password stored in this '+
+        'browser. You will be asked for it next time.</span></span>'+
+        '<i class="fa-solid fa-chevron-right" style="color:var(--faint);font-size:12px"></i>'+
+      '</button>');
+
+  var so = $('#signout');
+  if (so) so.onclick = signOut;
+
+  view().querySelectorAll('[data-act]').forEach(function(b){
+    var a = ACTIONS.filter(function(x){ return x.k===b.dataset.act; })[0];
+    var armed = false, label = b.innerHTML;
+    b.onclick = function(){
+      if(a.warn && !armed){
+        armed = true;
+        b.querySelector('b').textContent = 'Tap again to confirm';
+        setTimeout(function(){
+          armed = false;
+          if(b.isConnected) b.innerHTML = label;
+        }, 3200);
+        return;
+      }
+      b.disabled = true;
+      b.querySelector('.ic').innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>';
+      api('uiRunAction',[a.k]).then(function(msg){
+        b.disabled = false; b.innerHTML = label; armed = false;
+        toast(msg);
+        refreshHeader(); LEADS = null;
+      }).catch(function(e){
+        b.disabled = false; b.innerHTML = label; armed = false;
+        toast(e.message, true);
+      });
+    };
+  });
+}
+
+// ============================================================
+// TAB: settings
+// ============================================================
+// How each setting should be edited. Anything not listed falls back to text.
+var TZS = ['UTC','Asia/Dubai','Asia/Riyadh','Asia/Qatar','Asia/Kuwait','Asia/Karachi',
+  'Asia/Kolkata','Asia/Dhaka','Asia/Bangkok','Asia/Singapore','Asia/Hong_Kong',
+  'Asia/Shanghai','Asia/Tokyo','Asia/Seoul','Australia/Sydney','Australia/Perth',
+  'Europe/London','Europe/Dublin','Europe/Lisbon','Europe/Madrid','Europe/Paris',
+  'Europe/Berlin','Europe/Amsterdam','Europe/Rome','Europe/Zurich','Europe/Stockholm',
+  'Europe/Warsaw','Europe/Athens','Europe/Istanbul','Europe/Moscow',
+  'Africa/Cairo','Africa/Lagos','Africa/Nairobi','Africa/Johannesburg',
+  'America/New_York','America/Toronto','America/Chicago','America/Denver',
+  'America/Phoenix','America/Los_Angeles','America/Vancouver','America/Mexico_City',
+  'America/Bogota','America/Sao_Paulo','America/Argentina/Buenos_Aires','Pacific/Auckland'];
+var DAYS3 = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var DAYSFULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+var SKIND = {
+  followUpStartTime:'time', followUpEndTime:'time',
+  followUpSendingDays:'days',
+  notificationEmail:'email',
+  notificationFrequency:{choice:['daily','weekly']},
+  notificationDay:{choice:DAYSFULL},
+  minDelayMinutes:'num', maxDelayMinutes:'num', maxSendsPerDay:'num',
+  oooResumeDays:'num', replyResumeDays:'num', enrollDefaultTotalSteps:'num',
+  timezone:'tz',
+  pauseAllFollowUps:'bool', replyCheckBeforeSend:'bool',
+  oooAutoResume:'bool', enrollDefaultResumeOnReply:'bool',
+  enrollDefaultSequence:'seq', replyResumeSequence:'seq'
+};
+
+/** "13:30" -> {h:1, m:30, ap:'PM'} */
+function to12(hhmm){
+  var p = String(hhmm||'09:00').split(':');
+  var h = parseInt(p[0],10)||0, m = parseInt(p[1],10)||0;
+  var ap = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12; if(h12 === 0) h12 = 12;
+  return { h:h12, m:m, ap:ap };
+}
+/** (1, 30, 'PM') -> "13:30" */
+function to24(h12, m, ap){
+  var h = (parseInt(h12,10)||12) % 12;
+  if(ap === 'PM') h += 12;
+  return String(h).padStart(2,'0') + ':' + String(parseInt(m,10)||0).padStart(2,'0');
+}
+
+function renderSettings(){
+  busy();
+  api('uiGetSettings').then(function(list){
+    var pause = list.filter(function(s){ return s.name==='pauseAllFollowUps'; })[0];
+    var isOn  = pause && pause.value.toUpperCase()==='TRUE';
+
+    var field = function(s){
+      var k  = SKIND[s.name];
+      var id = 'set_' + s.name;
+      var v  = s.value;
+      var input;
+
+      if(s.name === 'webAppToken'){
+        input = '<input id="'+id+'" value="'+esc(v)+'" disabled>';
+
+      } else if(k === 'time'){
+        var t = to12(v);
+        var hrs = '', mins = '';
+        for(var i=1;i<=12;i++) hrs += '<option'+(i===t.h?' selected':'')+'>'+i+'</option>';
+        for(var m=0;m<60;m+=5){
+          var mm = String(m).padStart(2,'0');
+          mins += '<option'+(m===t.m?' selected':'')+'>'+mm+'</option>';
+        }
+        if(t.m % 5 !== 0){  // keep an odd saved minute selectable
+          mins += '<option selected>'+String(t.m).padStart(2,'0')+'</option>';
+        }
+        input = '<div class="t12" id="'+id+'">'+
+          '<select data-t="h">'+hrs+'</select><span>:</span>'+
+          '<select data-t="m">'+mins+'</select>'+
+          '<select data-t="ap"><option'+(t.ap==='AM'?' selected':'')+'>AM</option>'+
+            '<option'+(t.ap==='PM'?' selected':'')+'>PM</option></select></div>';
+
+      } else if(k === 'days'){
+        var on = String(v||'').split(',').map(function(x){ return x.trim().toLowerCase(); });
+        input = '<div class="daypick" id="'+id+'">'+ DAYS3.map(function(d){
+          return '<button class="day'+(on.indexOf(d.toLowerCase())!==-1?' on':'')+
+                 '" data-d="'+d+'">'+d+'</button>'; }).join('') +'</div>';
+
+      } else if(k === 'bool'){
+        input = '<select id="'+id+'">'+
+          '<option value="TRUE"'+(/true/i.test(v)?' selected':'')+'>TRUE — on</option>'+
+          '<option value="FALSE"'+(/true/i.test(v)?'':' selected')+'>FALSE — off</option></select>';
+
+      } else if(k === 'tz'){
+        var known = TZS.indexOf(v) !== -1;
+        input = '<select id="'+id+'">'+
+          (known || !v ? '' : '<option selected>'+esc(v)+'</option>')+
+          TZS.map(function(z){
+            return '<option'+(z===v?' selected':'')+'>'+esc(z)+'</option>'; }).join('')+
+          '</select>';
+
+      } else if(k === 'seq'){
+        var names = (SEQS||[]).map(function(x){ return x.name; });
+        input = '<select id="'+id+'"><option value=""'+(v?'':' selected')+'>— none —</option>'+
+          (v && names.indexOf(v)===-1 ? '<option selected>'+esc(v)+'</option>' : '')+
+          names.map(function(n){
+            return '<option'+(n===v?' selected':'')+'>'+esc(n)+'</option>'; }).join('')+
+          '</select>';
+
+      } else if(k && k.choice){
+        var kn = k.choice.indexOf(v) !== -1;
+        input = '<select id="'+id+'">'+
+          (kn || !v ? '' : '<option selected>'+esc(v)+'</option>')+
+          k.choice.map(function(o){
+            return '<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>'; }).join('')+
+          '</select>';
+
+      } else if(k === 'num'){
+        input = '<input id="'+id+'" type="number" inputmode="numeric" min="0" value="'+esc(v)+'">';
+      } else if(k === 'email'){
+        input = '<input id="'+id+'" type="email" inputmode="email" autocapitalize="off" '+
+                'spellcheck="false" value="'+esc(v)+'">';
+      } else {
+        input = '<input id="'+id+'" value="'+esc(v)+'">';
+      }
+
+      var hint = s.name==='notificationDay'
+        ? '<p class="tiny" style="margin:7px 0 0">After changing this, run '+
+          '<b>Tools &rarr; Recreate triggers</b> or the weekly summary keeps firing on the old day.</p>'
+        : '';
+      return '<div class="field"><label>'+esc(s.name)+'</label>'+input+hint+'</div>';
+    };
+
+    view().innerHTML =
+      '<div class="switch'+(isOn?' armed':'')+'"><div class="grow">'+
+        '<b>'+(isOn?'Follow-ups paused':'Follow-ups running')+'</b>'+
+        '<div class="muted" style="font-size:12.5px">'+
+        (isOn?'Nothing sends until you switch this off':'Emergency stop for every lead')+'</div></div>'+
+        '<button class="knob'+(isOn?' on':'')+'" id="pz"></button></div>'+
+      '<button class="btn ghost" id="run"><i class="fa-solid fa-play"></i>Run chain now</button>'+
+      '<h2 class="sec">All settings</h2>'+
+      list.filter(function(s){ return s.name!=='pauseAllFollowUps'; }).map(field).join('')+
+      '<p class="tiny">Times are shown in 12-hour and saved as 24-hour. '+
+      'Connection: '+(NATIVE?'served by Apps Script':'remote via API_URL')+'</p>';
+
+    $('#pz').onclick=function(){
+      var next=isOn?'FALSE':'TRUE';
+      $('#pz').disabled=true;
+      api('uiSaveSetting',['pauseAllFollowUps',next]).then(function(){
+        renderSettings(); refreshHeader();
+        toast(next==='TRUE'?'Everything paused':'Follow-ups resumed');
+      }).catch(function(e){ $('#pz').disabled=false; toast(e.message,true); });
+    };
+
+    $('#run').onclick=function(){
+      $('#run').disabled=true; $('#run').innerHTML='<i class="fa-solid fa-circle-notch spin"></i>Starting';
+      api('uiRunChainNow').then(function(m){
+        toast(m); refreshHeader();
+        $('#run').disabled=false; $('#run').innerHTML='<i class="fa-solid fa-play"></i>Run chain now';
+      }).catch(function(e){
+        $('#run').disabled=false; $('#run').innerHTML='<i class="fa-solid fa-play"></i>Run chain now';
+        toast(e.message,true);
+      });
+    };
+
+    // one save path for every control type
+    var save = function(name, value, revert){
+      api('uiSaveSetting',[name,value]).then(function(){
+        refreshHeader(); toast('Saved '+name);
+      }).catch(function(e){ if(revert) revert(); toast(e.message,true); });
+    };
+
+    list.forEach(function(s){
+      if(s.name==='pauseAllFollowUps'||s.name==='webAppToken') return;
+      var k=SKIND[s.name], el=$('#set_'+s.name);
+      if(!el) return;
+
+      if(k==='time'){
+        var sel = el.querySelectorAll('select');
+        sel.forEach(function(x){
+          x.onchange=function(){
+            save(s.name, to24(el.querySelector('[data-t="h"]').value,
+                              el.querySelector('[data-t="m"]').value,
+                              el.querySelector('[data-t="ap"]').value));
+          };
+        });
+
+      } else if(k==='days'){
+        el.querySelectorAll('[data-d]').forEach(function(b){
+          b.onclick=function(){
+            b.classList.toggle('on');
+            var picked = DAYS3.filter(function(d){
+              return el.querySelector('[data-d="'+d+'"]').classList.contains('on'); });
+            if(!picked.length){ b.classList.add('on'); toast('Pick at least one day',true); return; }
+            save(s.name, picked.join(','));
+          };
+        });
+
+      } else if(el.tagName==='SELECT'){
+        var was=el.value;
+        el.onchange=function(){
+          var want=el.value;
+          save(s.name, want, function(){ el.value=was; });
+          was=want;
+        };
+
+      } else {
+        var orig=el.value;
+        el.onblur=function(){
+          if(el.value===orig) return;
+          var want=el.value;
+          save(s.name, want, function(){ el.value=orig; });
+          orig=want;
+        };
+      }
+    });
+  }).catch(fail);
+}
+
+// ============================================================
+// nav rail: hideable, remembered
+// ============================================================
+var NARROW = function(){
+  try { return window.matchMedia('(max-width: 720px)').matches; } catch(e){ return false; }
+};
+function setNav(hidden){
+  document.body.classList.toggle('navhidden', !!hidden);
+  var i = document.querySelector('#navtog i');
+  if (i) i.className = hidden ? 'fa-solid fa-bars' : 'fa-solid fa-bars-staggered';
+  try { localStorage.setItem('fum_nav', hidden ? 'hidden' : 'shown'); } catch(e){}
+}
+function initNav(){
+  var saved = '';
+  try { saved = localStorage.getItem('fum_nav') || ''; } catch(e){}
+  // No saved choice: start hidden on a phone, shown on anything wider.
+  setNav(saved ? saved === 'hidden' : NARROW());
+  document.getElementById('navtog').onclick = function(){
+    setNav(!document.body.classList.contains('navhidden'));
+  };
+}
+
+// ============================================================
+// lock screen (remote hosting only)
+// ============================================================
+//
+// Apps Script mode needs none of this - Google already asked who you are.
+// Remote mode otherwise ships the token inside the page, readable by anyone
+// who opens the URL. Asking for it once and keeping it in this browser keeps
+// it out of the file entirely.
+function needsLock(){ return !NATIVE && !!API_URL && !getToken(); }
+
+function showLock(){
+  if (document.getElementById('lock')) return;
+  var d = document.createElement('div');
+  d.id = 'lock';
+  d.innerHTML =
+    '<div class="box">'+
+      '<div class="mark"><i class="fa-solid fa-bolt"></i></div>'+
+      '<h2>Follow Up Machine</h2>'+
+      '<p>Enter your password to unlock. It is the <b>webAppToken</b> row in '+
+      'your Settings sheet, and it stays in this browser only.</p>'+
+      '<input id="lockpw" type="password" autocomplete="current-password" '+
+             'placeholder="password" autocapitalize="off" spellcheck="false">'+
+      '<button class="btn allow-busy" id="lockgo">'+
+        '<i class="fa-solid fa-unlock"></i>Unlock</button>'+
+      '<p id="lockerr" class="tiny" style="color:var(--red);margin-top:12px;min-height:16px"></p>'+
+    '</div>';
+  document.body.appendChild(d);
+
+  var go = function(){
+    var pw = document.getElementById('lockpw').value.trim();
+    if (!pw){ document.getElementById('lockerr').textContent = 'Type your password.'; return; }
+    var btn = document.getElementById('lockgo');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch spin"></i>Checking';
+    setToken(pw);
+    // uiGetStats is cheap and authenticated - a clean result proves the token.
+    api('uiGetStats').then(function(){
+      d.remove();
+      boot();
+    }).catch(function(e){
+      clearToken();
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-unlock"></i>Unlock';
+      document.getElementById('lockerr').textContent = e.message;
+    });
+  };
+  document.getElementById('lockgo').onclick = go;
+  document.getElementById('lockpw').onkeydown = function(e){ if (e.key === 'Enter') go(); };
+  setTimeout(function(){ try{ document.getElementById('lockpw').focus(); }catch(e){} }, 80);
+}
+
+function signOut(){
+  clearToken();
+  LEADS = SEQS = VARS = STATS = null;
+  showLock();
+}
+
+// ============================================================
+// routing
+// ============================================================
+var TABS={leads:renderLeads,add:renderAdd,seq:renderSeq,log:renderLog,
+          tools:renderTools,settings:renderSettings};
+
+function go(tab){
+  document.body.dataset.tab = tab;   // lets CSS widen the pipeline board
+  document.querySelectorAll('nav button').forEach(function(b){
+    b.classList.toggle('on', b.dataset.tab===tab);
+  });
+  try{ window.scrollTo(0,0); }catch(e){}
+  TABS[tab]();
+}
+document.querySelectorAll('nav button').forEach(function(b){
+  b.onclick=function(){
+    go(b.dataset.tab);
+    if (NARROW()) setNav(true);   // give the content the whole screen back
+  };
+});
+
+function boot(){
+  loadSeqs().catch(function(){ SEQS=[]; });
+  api('uiGetVariables').then(function(v){ VARS=v; }).catch(function(){ VARS=[]; });
+  refreshHeader();
+  go('leads');
+}
+
+initNav();
+if (needsLock()) showLock(); else boot();
+</script>
+</body>
+</html>
